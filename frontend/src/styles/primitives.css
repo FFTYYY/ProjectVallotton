@@ -1,0 +1,423 @@
+/* ==========================================================================
+   controls
+   ========================================================================== */
+
+/* bare icon button: a glyph that warms to the accent, nothing more */
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-2);
+  color: var(--ink-3);
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.icon-btn:hover { color: var(--accent); background: var(--accent-softer); }
+.icon-btn:disabled { opacity: 0.4; cursor: default; }
+
+/*
+ * Panel button. Not a slab: a hairline frame with wide letterspaced type,
+ * whose hover reads as the frame and the type taking the accent — the fill
+ * stays a whisper (wash), so nothing flips to a block of colour.
+ */
+.info-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease),
+    background var(--fast) var(--ease);
+}
+.info-action-btn svg { color: var(--ink-3); transition: color var(--fast) var(--ease); }
+.info-action-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-softer);
+  color: var(--accent-deep);
+}
+.info-action-btn:hover svg { color: var(--accent); }
+.info-action-btn.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 34%, var(--rule)); }
+.info-action-btn.danger svg { color: var(--danger); }
+.info-action-btn.danger:hover { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+/* the affirmative one is the only filled button in a panel */
+.info-action-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.info-action-btn.primary svg { color: var(--on-accent); }
+.info-action-btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--on-accent); }
+.info-action-btn:disabled { opacity: 0.4; cursor: default; }
+
+/*
+ * Two field shapes, and nothing else in the app invents a third.
+ *
+ * A single line — a title, a name — is written ON a rule: one hairline under
+ * the text and an accent line that grows from the centre on focus. The
+ * growing underline is two background layers rather than a wrapper element,
+ * so any bare <input> can wear it without extra markup.
+ *
+ * A whole paragraph sinks into a filled well instead. Outlining it as well
+ * would draw the same large rectangle twice, and a near-white box on this
+ * palette is the one thing that always read as "generic form".
+ */
+.info-input,
+.login-input,
+.conv-rename-input,
+.workspace-name {
+  width: 100%;
+  padding: 7px 2px;
+  border: none;
+  border-radius: 0;
+  outline: none;
+  font-size: var(--t-ui);
+  background-color: transparent;
+  background-image:
+    linear-gradient(var(--accent), var(--accent)),
+    linear-gradient(var(--rule-strong), var(--rule-strong));
+  background-repeat: no-repeat;
+  background-position: center bottom, center bottom;
+  background-size: 0 2px, 100% 1px;
+  transition: background-size var(--base) var(--ease),
+    background-color var(--fast) var(--ease);
+}
+.info-input:hover,
+.login-input:hover,
+.conv-rename-input:hover,
+.workspace-name:hover {
+  background-image:
+    linear-gradient(var(--accent), var(--accent)),
+    linear-gradient(var(--ink-3), var(--ink-3));
+}
+.info-input:focus,
+.login-input:focus,
+.conv-rename-input:focus,
+.workspace-name:focus { background-size: 100% 2px, 100% 1px; }
+.info-input::placeholder,
+.login-input::placeholder { color: var(--ink-3); }
+
+.lib-textarea,
+.phrase-content-input {
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-radius: var(--r-2) var(--r-2) 2px 2px;
+  outline: none;
+  font-size: var(--t-ui);
+  background-color: var(--field-soft);
+  background-image: linear-gradient(var(--accent), var(--accent));
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  background-size: 0 2px;
+  transition: background-size var(--base) var(--ease),
+    background-color var(--fast) var(--ease);
+}
+.lib-textarea:hover,
+.phrase-content-input:hover { background-color: var(--field-soft-hover); }
+.lib-textarea:focus,
+.phrase-content-input:focus { background-size: 100% 2px; }
+.phrase-content-input { resize: vertical; min-height: 76px; line-height: 1.65; }
+
+.info-label {
+  display: block;
+  margin: 16px 0 2px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.info-meta { font-size: var(--t-caption); color: var(--ink-3); letter-spacing: 0.02em; }
+.info-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+/* a segmented figure control, ruled like a table */
+.seg {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-2);
+  overflow: hidden;
+}
+.seg-item {
+  width: 32px;
+  padding: 5px 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  background: transparent;
+  border-right: 1px solid var(--rule);
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.seg-item:last-child { border-right: none; }
+/* the same control holding a word instead of a figure */
+.seg-item.wide { width: auto; padding: 5px 11px; }
+.seg-item:disabled { opacity: 0.55; }
+.seg-item:hover { background: var(--accent-softer); color: var(--accent-deep); }
+.seg-item.active { background: var(--accent); color: var(--on-accent); }
+
+/* ==========================================================================
+   toasts
+   ========================================================================== */
+
+.toast-stack {
+  position: fixed;
+  top: max(16px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  max-width: min(88vw, 460px);
+  padding: 9px 17px;
+  border-radius: var(--r-2);
+  background: var(--ink);
+  color: #eef1f8;
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  box-shadow: var(--lift);
+  animation: fade-in var(--fast) var(--ease);
+}
+.toast.error { background: var(--danger); }
+.toast.success { background: var(--ok); }
+
+/* ==========================================================================
+   breadcrumbs
+   ========================================================================== */
+
+.chat-header-crumbs { font-size: 12px; color: var(--ink-3); }
+.crumb-sep { margin: 0 5px; opacity: 0.6; }
+.chat-header-kind {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+
+/* ==========================================================================
+   the app's own dialog
+
+   The browser's prompt/confirm has no place in this design — it ignores the
+   palette, the type and the shape language, and it blocks the page. This is
+   the one overlay that earns a lift.
+   ========================================================================== */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(31, 38, 51, 0.32);
+  animation: fade-in var(--fast) var(--ease);
+}
+
+.modal {
+  width: min(420px, 100%);
+  padding: 20px 22px 16px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  box-shadow: var(--lift);
+  animation: modal-rise var(--base) var(--ease);
+}
+
+.modal-title {
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+.modal-body {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--ink-2);
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+.modal-actions .info-action-btn { min-width: 84px; justify-content: center; }
+
+/* ---- the inspector -------------------------------------------------------
+   A turn's raw output, shown as it came back. It is JSON, so it is wide,
+   monospaced and scrolls on both axes inside its own box — the page behind
+   it never moves. */
+.modal.wide {
+  width: min(760px, 100%);
+  max-height: min(78dvh, 860px);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 18px 18px;
+}
+.inspect-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.inspect-head .modal-title { flex: 1; min-width: 0; }
+.inspect-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -18px -18px;
+  padding: 8px 18px 18px;
+}
+.inspect-block + .inspect-block { margin-top: 14px; }
+.inspect-block-title {
+  margin-bottom: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-deep);
+}
+/* a title that is also the disclosure for a very long block */
+.inspect-block-title.foldable {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 3px 0;
+  text-align: left;
+  transition: color var(--fast) var(--ease);
+}
+.inspect-block-title.foldable:hover { color: var(--accent); }
+.inspect-block-title.foldable svg {
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+  transition: transform var(--base) var(--ease);
+}
+.inspect-block-title.foldable.open svg { transform: rotate(0deg); }
+/* how much is behind the fold, so the click is an informed one */
+.inspect-block-size {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: none;
+  color: var(--ink-3);
+}
+
+.inspect-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 4px 9px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-1);
+  font-size: 11.5px;
+  color: var(--ink-2);
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.inspect-copy:hover { border-color: var(--accent); color: var(--accent-deep); }
+.inspect-pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-1);
+  background: var(--surface-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+/* the references the lead model was handed — the pictures themselves, since
+   that is now literally what it was given */
+.inspect-refs { display: flex; flex-wrap: wrap; gap: 8px; }
+.inspect-refs figure { margin: 0; }
+.inspect-refs img {
+  display: block;
+  max-width: 150px;
+  max-height: 190px;
+  border-radius: var(--r-1);
+  background: var(--surface-soft);
+}
+.inspect-refs figcaption {
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
+
+.inspect-note { margin-top: 14px; font-size: 11.5px; color: var(--ink-3); }
+/* the one note here that is about something going wrong */
+.inspect-note.warn { color: var(--brass); }
+
+/* the one place a destructive action is filled rather than outlined: it is
+   the button the dialog exists to ask about */
+.info-action-btn.danger.solid {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--on-accent);
+}
+.info-action-btn.danger.solid:hover { background: #9c4d41; border-color: #9c4d41; }
+
+/* ==========================================================================
+   tooltip — content on arrival, not after the browser's own long pause
+
+   Rendered through a portal, because both rails clip their overflow and a
+   bubble inside one would be cut off at the edge.
+   ========================================================================== */
+
+.tt-anchor { display: contents; }
+
+.tooltip {
+  position: fixed;
+  z-index: 95;
+  max-width: 320px;
+  padding: 8px 11px;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: var(--r-2);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  box-shadow: var(--lift);
+  pointer-events: none;
+  animation: fade-in var(--fast) var(--ease);
+}
+.tooltip.left { transform: translate(-100%, -50%); }
+.tooltip.below { transform: none; }
+/* the vertical pair are centred on their anchor, so they carry the same x
+   shift and differ only in which way they hang */
+.tooltip.above { transform: translate(-50%, -100%); }
+.tooltip.under { transform: translateX(-50%); }
+
+
+/* ---- reflection rounds, inside the inspector -----------------------------
+   Prose rather than JSON, so it is not in a <pre> like its neighbours. */
+.inspect-round { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--rule); }
+.inspect-round:first-of-type { border-top: none; padding-top: 2px; }
+.inspect-round-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+.inspect-round-head .redrew { color: var(--brass); }
+.inspect-round-said {
+  margin-top: 3px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+}
+.inspect-round-head .failed { color: var(--danger); }

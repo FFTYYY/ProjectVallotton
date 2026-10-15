@@ -1,0 +1,193 @@
+/* ==========================================================================
+   Layout — the shell, the two rails' frames, and the controls that fold them.
+
+   Only structure lives here. What goes INSIDE each rail is sidebar.css and
+   rightbar.css; this file just decides where the columns are and how they
+   come and go.
+   ========================================================================== */
+
+.app-shell { display: flex; height: 100dvh; overflow: hidden; }
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: margin-right var(--base) var(--ease);
+}
+
+/* ---- folding the rails --------------------------------------------------
+   One control per rail, each pinned to the edge its rail folds into, so it
+   never moves relative to that edge. They carry deliberately different marks:
+   the right rail shows the panel, the left shows the direction it travels. */
+
+.sidebar-toggle,
+.rightbar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-3);
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease), right var(--base) var(--ease),
+    opacity var(--fast) var(--ease);
+}
+.sidebar-toggle:hover,
+.rightbar-toggle:hover {
+  background: var(--wash);
+  border-color: var(--rule);
+  color: var(--accent);
+}
+.sidebar-toggle.active,
+.rightbar-toggle.active { color: var(--accent); }
+
+.sidebar-toggle {
+  position: absolute;
+  top: 13px;
+  left: 12px;
+  z-index: 30;
+  display: none;          /* a phone has the swipe drawer instead */
+}
+
+.rightbar-toggle {
+  position: fixed;
+  z-index: 50;            /* above the rail, so it stays reachable while open */
+  top: 13px;
+  right: 16px;
+}
+.rightbar-toggle.inert { opacity: 0.25; pointer-events: none; }
+
+.app-shell.right-open .app-main { margin-right: var(--rightbar-w); }
+
+@media (min-width: 861px) {
+  .sidebar-toggle { display: flex; }
+  /* NB: scoped to this width. Declared unscoped it replaces the `transition`
+     the drawer slides on below 861px, and the phone's rail starts snapping. */
+  .sidebar { transition: margin-left var(--base) var(--ease); }
+  .app-shell.left-closed .sidebar { margin-left: calc(-1 * var(--sidebar-w)); }
+}
+
+/* ==========================================================================
+   topbar — the phone's own header
+   ========================================================================== */
+
+.topbar {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  padding-top: calc(8px + env(safe-area-inset-top));
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--rail);
+  border-bottom: 1px solid var(--rule-rail);
+}
+.topbar-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+/* Room runs out from the left: the folders give way first, because the name
+   is what you are looking at and the trail is where it lives. */
+.topbar-crumbs {
+  flex: 0 4 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-3);
+  font-weight: 400;
+}
+.topbar-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topbar-title .tag-chip {
+  flex-shrink: 0;
+  margin-left: 8px;
+  align-self: center;
+}
+.topbar-spacer { width: 34px; flex-shrink: 0; }
+
+/* ==========================================================================
+   narrow: the left rail becomes a drawer, the right one a sheet
+   ========================================================================== */
+
+@media (max-width: 860px) {
+  .topbar { display: flex; }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(84vw, 312px);
+    height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    background: var(--rail);
+    border-right: 1px solid var(--rule-rail);
+    transform: translateX(-102%);
+    /* NB: this must stay the only `transition` on .sidebar at this width —
+       a second declaration elsewhere replaces it and the drawer stops
+       animating altogether, which is exactly what happened once already. */
+    transition: transform var(--base) var(--ease), box-shadow var(--base) var(--ease);
+  }
+  .sidebar.open { transform: translateX(0); box-shadow: var(--lift); }
+  .sidebar.dragging { transition: none; }
+
+  .drawer-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    background: rgba(31, 38, 51, 0.32);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--base) var(--ease);
+  }
+  .drawer-overlay.visible { opacity: 1; pointer-events: auto; }
+
+  .app-shell.right-open .app-main { margin-right: 0; }
+
+  /* The control stays put whether the sheet is open or shut: open, it floats
+     in the sheet's own bottom-right padding — see .rightbar-scroll, whose
+     bottom padding is sized to keep content out from under it. */
+  .rightbar-toggle {
+    z-index: 50;
+    top: auto;
+    right: 22px;
+    /* Rides on the composer's top edge rather than the window's bottom, so a
+       message that grows to several lines cannot swallow it. --composer-h is
+       published by Composer.tsx; the fallback is one empty row's worth.
+       This also lands it in the sheet's bottom-right padding when the sheet
+       is open, since the sheet ends exactly where the composer begins. */
+    /* no env() added here: the composer row's own padding already carries the
+       safe-area inset, and --composer-h is its full box */
+    bottom: calc(var(--composer-h, 96px) + 16px);
+    background: var(--surface);
+    border-color: var(--rule-strong);
+  }
+  /* it floats over the transcript here rather than living in a rail, so
+     "open" has to be unmistakable: inked in, not a colour shift */
+  .rightbar-toggle.active {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper);
+  }
+  .rightbar-toggle.active:hover {
+    background: var(--ink-2);
+    border-color: var(--ink-2);
+    color: var(--paper);
+  }
+}

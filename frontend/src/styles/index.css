@@ -1,0 +1,32 @@
+/*
+ * Vallotton — the stylesheet, as a set of modules.
+ *
+ * Import order IS the cascade, so it is deliberate:
+ *
+ *   tokens      the design decisions, and the only place colours are chosen
+ *   base        reset, type, scrollbars, focus, prose
+ *   motion      the shared keyframes and the one collapse mechanism
+ *   primitives  what more than one screen reuses: buttons, the two field
+ *               shapes, chips, tooltips, the dialog
+ *   layout      the shell, the rails' frames, the controls that fold them
+ *   then one file per region, none of which may reach into another
+ *
+ * Two rules keep this from rotting back into what it was:
+ *
+ *   1. A selector is defined ONCE, in the module that owns it. If a rule
+ *      needs changing, change it there — never append an override.
+ *   2. Colours come from tokens.css. Nothing in this app is white; elevation
+ *      is a step deeper into the theme plus a hairline, never a bleach
+ *      toward #fff.
+ */
+
+@import "./tokens.css";
+@import "./base.css";
+@import "./motion.css";
+@import "./primitives.css";
+@import "./layout.css";
+@import "./sidebar.css";
+@import "./rightbar.css";
+@import "./chat.css";
+@import "./library.css";
+@import "./entry.css";

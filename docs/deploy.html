@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>部署教程 · Vallotton</title>
+<meta name="description" content="把 Vallotton 架到服务器上：docker compose、宿主 nginx、HTTPS、MCP、备份，以及每一个环境变量的含义。">
+<link rel="icon" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@500;600&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/toc.js" defer></script>
+</head>
+<body>
+<header class="top"><div class="top-inner">
+  <a class="brand" href="index.html"><img src="assets/logo.png" alt=""><span class="word">Vallotton</span><span class="sub">文档</span></a>
+  <nav class="menu">
+    <a href="index.html">前言</a>
+    <a href="quickstart.html">快速上手</a>
+    <a href="guide.html">进阶指南</a>
+    <a class="active" href="deploy.html">部署教程</a>
+  </nav>
+</div></header>
+
+<main class="page">
+<aside class="toc"><div class="toc-fixed">
+  <div class="toc-site">
+    <div class="toc-title">文档</div>
+    <a class="page-link" href="index.html">前言</a>
+    <a class="page-link" href="quickstart.html">快速上手</a>
+    <a class="page-link" href="guide.html">进阶指南</a>
+    <a class="page-link current" href="deploy.html">部署教程</a>
+  </div>
+  <div class="toc-title">本页</div>
+  <div class="toc-page">
+    <a href="#prep">你需要准备的东西</a>
+    <a href="#steps">部署步骤</a>
+    <a class="l2" href="#step-code">下载代码</a>
+    <a class="l2" href="#step-env">填写.env</a>
+    <a class="l2" href="#step-up">启动</a>
+    <a class="l2" href="#step-https">配置域名和HTTPS</a>
+    <a class="l2" href="#step-open">打开网页</a>
+    <a href="#ops">日常维护</a>
+    <a href="#mcp">MCP</a>
+    <a href="#security">关于安全</a>
+    <a href="#faq">附录：出了问题怎么办</a>
+    <a href="#env">附录：环境变量一览</a>
+  </div>
+</div></aside>
+
+<article>
+<h1>部署教程</h1>
+<p class="lede">这一章详细介绍怎样把Vallotton部署到一台服务器上。部署以后，你可以在任何地方（包括手机上），通过自己的域名打开Vallotton；画图也在服务器上进行，不需要你的电脑一直开着。这一章假设你会用命令行登录和操作一台Linux服务器。如果你只想在自己的电脑上用，看<a href="quickstart.html">快速上手</a>就够了。</p>
+
+<h2 id="prep">你需要准备的东西</h2>
+<ul>
+  <li><b>一台Linux服务器</b>，能从公网访问。下面的命令都以Ubuntu为例。画图是在NovelAI那边进行的，所以服务器不需要显卡。</li>
+  <li><b>一个域名</b>。在域名服务商那里添加一条A记录，指向服务器的IP。Vallotton只能通过HTTPS域名登录，直接用IP地址打开是登录不了的。</li>
+  <li><b>NovelAI和DeepSeek的密钥</b>，和快速上手里要的一样，获取方法见<a href="quickstart.html#accounts">准备两个账号</a>。</li>
+  <li><b>在服务器上装好Docker、nginx和certbot。</b>Docker用来运行Vallotton，nginx负责把你的域名接到Vallotton上，certbot用来申请免费的HTTPS证书：
+<pre><code>curl -fsSL https://get.docker.com | sh
+sudo apt install nginx certbot python3-certbot-nginx</code></pre></li>
+  <li><b>在云服务商的控制台里放行22、80、443三个端口</b>（通常在「安全组」或「防火墙」设置里）。22用来登录服务器，80和443用来访问网页。</li>
+</ul>
+
+<h2 id="steps">部署步骤</h2>
+<p>部署好以后，Vallotton会在服务器上的Docker里运行，只在服务器本机开一个端口（默认是8300）。从外面访问你的域名时，请求先到服务器上的nginx，由它负责HTTPS，再转给Vallotton。下面按顺序来讲解。</p>
+
+<h3 id="step-code">1.下载代码</h3>
+<p>登录服务器，把代码下载到一个固定的位置，比如<code>/srv/vallotton/app</code>。还要建一个目录专门存放画好的图，比如<code>/srv/vallotton/media</code>。后文中会以这两个地址为例，如果要用其他路径，后文中的指令都需要对应地调整。</p>
+<pre><code>sudo mkdir -p /srv/vallotton/media
+sudo chown -R $USER /srv/vallotton
+git clone https://github.com/FFTYYY/ProjectVallotton.git /srv/vallotton/app
+cd /srv/vallotton/app</code></pre>
+<p>下文的命令都默认在这个代码目录<code>/srv/vallotton/app</code>里运行。</p>
+
+<h3 id="step-env">2.填写.env</h3>
+<p>Vallotton的所有配置都写在代码目录下的<code>.env</code>文件里，包括各种密钥和密码。先从模板复制一份：</p>
+<pre><code>cp .env.example .env</code></pre>
+<p>然后用编辑器打开它（比如<code>nano .env</code>），修改下面这些项：</p>
+<div class="wrap"><table>
+<tr><th>项</th><th>填什么</th></tr>
+<tr><td><code>LLM_PROVIDER</code></td><td>用什么语言模型。目前只支持<code>deepseek</code>或<code>grok</code>。模板里默认是<code>deepseek</code>。</td></tr>
+<tr><td><code>DEEPSEEK_API_KEY</code></td><td>DeepSeek的API key。只有<code>LLM_PROVIDER</code>选<code>deepseek</code>时需要填。以<code>sk-</code>开头。</td></tr>
+<tr><td><code>GROK_API_KEY</code></td><td>Grok的API key。只有<code>LLM_PROVIDER</code>选<code>grok</code>时需要填。以<code>xai-</code>开头。</td></tr>
+<tr><td><code>NOVELAI_API_KEY</code></td><td>NovelAI的密钥。以<code>pst-</code>开头。</td></tr>
+<tr><td><code>APP_USERNAME</code><br><code>APP_PASSWORD</code></td><td>登录Vallotton网页用的用户名和密码。</td></tr>
+<tr><td><code>ADMIN_PASSWORD</code></td><td>管理后台的密码。通常不会用到，随便设一个长一点的随机密码就行。</td></tr>
+<tr><td><code>DJANGO_SECRET_KEY</code></td><td>一串随机字符，用来保护登录状态。</td></tr>
+<tr><td><code>POSTGRES_PASSWORD</code></td><td>数据库的密码。你自己不会用到它，同样填一串随机字符即可。</td></tr>
+<tr><td><code>DOMAIN</code></td><td>你的域名。不要带<code>https://</code>前缀。例如<code>vallotton.example.com</code>。</td></tr>
+<tr><td><code>MEDIA_DIR</code></td><td>存放图片的目录，填上一步建的<code>/srv/vallotton/media</code>。</td></tr>
+</table></div>
+<p>下面几项不是必填的，但比较常用：</p>
+<ul>
+  <li><code>OPENROUTER_API_KEY</code>：Openrouter的API key。填了以后，如果语言模型的官方接口连不上，Vallotton会自动暂时切换到OpenRouter备用线路。</li>
+  <li><code>MCP_TOKEN</code>：MCP的密钥。只有打算开启<a href="#mcp">MCP</a>时需要填。一般填一串随机字符，用到的时候复制即可。</li>
+  <li>各家的模型型号和推理强度，比如<code>DEEPSEEK_MODEL</code>、<code>GROK_REASONING_EFFORT</code>：想换模型或者调快慢时改。详细列表见后文环境变量一览</li>
+</ul>
+<p>其余的项通常保持默认就可以。环境变量的详细列表见最后的<a href="#env">环境变量一览</a>。</p>
+
+<h3 id="step-up">3.启动</h3>
+<p>在代码目录下运行：</p>
+<pre><code>docker compose up -d --build</code></pre>
+<p>第一次启动要下载和构建几个Docker镜像，需要等几分钟。完成以后，用下面两条命令检查一下：</p>
+<pre><code>docker compose ps
+curl -s http://127.0.0.1:8300/api/auth/me</code></pre>
+<p>第一条命令应该列出db、backend、web三个容器，状态都是Up。第二条命令应该返回<code>{"authenticated": false}</code>，说明Vallotton已经在服务器本机的8300端口上跑起来了。</p>
+<p>这时还不能从外网访问，因为8300端口只对服务器本机开放。外网访问要经过下一步配置的nginx。如果8300端口已经被服务器上别的程序占用了，可以在<code>.env</code>里把<code>VALLOTTON_HTTP_PORT</code>改成别的端口，然后再运行一次<code>docker compose up -d</code>，下一步中的nginx配置也要跟着改。</p>
+
+<h3 id="step-https">4.配置域名和HTTPS</h3>
+<p>代码里带了一份nginx的配置模板<code>deploy/host-nginx.conf.example</code>，它会把发到你域名上的访问转给Vallotton。下面的命令会自动配置nginx。这个命令以及后文中，我们以<code>vallotton.example.com</code>这个域名为例。运行之前，记得先把命令里的<code>vallotton.example.com</code>换成你的域名。</p>
+<pre><code>sudo sh -c 'sed "s/YOUR_DOMAIN/vallotton.example.com/g" deploy/host-nginx.conf.example > /etc/nginx/sites-available/vallotton'
+sudo ln -s /etc/nginx/sites-available/vallotton /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx</code></pre>
+<p>然后用certbot申请HTTPS证书（同样，把示例域名<code>vallotton.example.com</code>换成你的域名）。它会自动修改刚才的配置，加上HTTPS，并且把http的访问自动跳转到https：</p>
+<pre><code>sudo certbot --nginx -d vallotton.example.com</code></pre>
+<p>证书的有效期是90天，certbot会在到期前自动续期，不需要额外操作。</p>
+<div class="note"><p><b>如果你的域名用了Cloudflare：</b>用certbot申请证书之前，记得先在Cloudflare里把这条记录切成「仅DNS」（灰色的云朵），申请成功以后再切回代理。</p>
+<p>也可以选择不用certbot，改用Cloudflare签发的源站证书（Origin Certificate）：在Cloudflare的SSL/TLS → Origin Server里生成，有效期15年，不用续期。把证书和私钥放到服务器上，在nginx配置里加一段443端口的server块指向它们就行。这种证书只在经过Cloudflare代理访问时有效。</p>
+<p>不管用哪种证书，Cloudflare的SSL/TLS模式都要选「Full (strict)」，不能选「Flexible」，否则网页能打开，但是登录不了。</p></div>
+
+<h3 id="step-open">5.打开网页</h3>
+<p>一切顺利的话，在浏览器里打开<code>https://vallotton.example.com</code>（换成你的域名），用<code>.env</code>里设的<code>APP_USERNAME</code>和<code>APP_PASSWORD</code>即可登录Vallotton。之后的用法和<a href="quickstart.html">快速上手</a>、<a href="guide.html">进阶指南</a>里讲的完全一样。也可以在手机上将Vallotton安装为一个app。见进阶指南的<a href="guide.html#mobile">在手机上用</a>。</p>
+<p>需要注意的是，一定要通过https和域名访问。如果直接用http或者用服务器的IP打开，那么即使页面能显示，也无法登录。这是为了安全而故意设计的。</p>
+
+<h2 id="ops">日常维护</h2>
+<p>下面的命令都在代码目录<code>/srv/vallotton/app</code>里运行。</p>
+<ul>
+  <li><b>更新到新版本</b>：拉取最新的代码，再重新构建、启动。
+<pre><code>git pull && docker compose up -d --build</code></pre></li>
+  <li><b>修改配置</b>：改完<code>.env</code>以后运行<code>docker compose up -d</code>就会生效。网页登录的账号和密码也是这样改，每次启动时会自动更新。</li>
+  <li><b>查看日志</b>：出了问题想看看发生了什么，可以看后端的日志，按<kbd>Ctrl+C</kbd>退出。
+<pre><code>docker compose logs -f backend</code></pre></li>
+  <li><b>停止</b>：运行<code>docker compose down</code>。对话和图片都会保留，下次<code>docker compose up -d</code>就能继续用。不要加<code>-v</code>，那样会把数据库一起删掉。</li>
+  <li><b>备份</b>：Vallotton的全部数据就是数据库和图片目录（图片存在单独的文件夹中，而非数据库内，这是为了提高性能和便于管理）。以下命令备份数据库和图片目录：
+<pre><code>docker compose exec db pg_dump -U vallotton vallotton | gzip > backup-$(date +%F).sql.gz
+tar czf media-$(date +%F).tar.gz -C /srv/vallotton media</code></pre>
+  从备份恢复数据库（将<code>日期</code>换成对应的日期后缀）：
+<pre><code>gunzip -c backup-日期.sql.gz | docker compose exec -T db psql -U vallotton vallotton</code></pre></li>
+</ul>
+<p>Vallotton还带有一个管理后台，能看到所有对话、消息和图片，以及每天的API花费。为了安全，它默认不对外开放，平时也用不到。确实需要的话，只需要在代码目录里新建一个<code>docker-compose.override.yml</code>，给backend加上<code>ports: ["127.0.0.1:8000:8000"]</code>，并在<code>.env</code>里临时设置<code>COOKIE_SECURE=0</code>，重新启动服务。然后用SSH隧道连到服务器，打开<code>http://127.0.0.1:8000/admin/</code>，用<code>ADMIN_USERNAME</code>和<code>ADMIN_PASSWORD</code>登录。用完记得把这两处改回去。</p>
+
+<h2 id="mcp">MCP</h2>
+<p>MCP是Vallotton提供的一套通过url访问内部服务的接口。别的程序可以通过它发一句话并拿回画好的图，也可以直接用提示词画图、查询额度等。通过MCP发起的对话在网页的左边栏里同样能看到。</p>
+<p>注意Vallotton这个接口用的是自己的一套魔改版的简易协议，不是标准的MCP协议，所以无法直接在Claude Desktop、Cursor这类客户端中连接（现在MCP也不那么常用就是了...）。</p>
+<p>启用方法：</p>
+<ol>
+  <li>在<code>.env</code>里设置<code>MCP_TOKEN</code>，填一串任意的字符串。这是你的Vallotton的MCP服务的密钥。</li>
+  <li>运行<code>docker compose --profile mcp up -d --build</code>。可以用<code>curl -s http://127.0.0.1:8301/health</code>检查，返回里有<code>"ok": true</code>就说明启动了。</li>
+  <li>默认情况下，MCP只在服务器本机的8301端口上。如果想从外网访问，需要在<code>.env</code>里设置<code>MCP_BIND=0.0.0.0</code>，并重新运行上一条命令。记得在云服务商的控制台放行8301端口。</li>
+</ol>
+<p>使用MCP时，只需要把如下信息告诉你的coding agent，然后它自会figure out如何与Vallotton的MCP服务交互。</p>
+<pre><code>{
+  "name": "vallotton",
+  "url": "http://服务器IP:8301",
+  "bearer_token": "你的.env里的 MCP_TOKEN"
+}</code></pre>
+<p>有两点需要注意。第一，打开了外网访问的话，从外网直接访问MCP走的是明文HTTP协议。第二，画一张图可能要好几分钟，客户端的超时要设到600秒以上。</p>
+
+<h2 id="security">关于安全</h2>
+<p>如果你按照本教程部署，那么Vallotton默认已经做了这些保护：</p>
+<ul>
+  <li>对外只开放nginx的80和443端口。Vallotton自己的端口和数据库都只在服务器内部，外面访问不到。MCP只有在你设置了<code>MCP_BIND=0.0.0.0</code>时才对外。</li>
+  <li>网页登录连续输错8次密码，会锁定15分钟。网页登录和管理后台是两个独立的账号。</li>
+  <li>画好的图也要登录以后才能看到，别人拿到图片的地址也打不开。</li>
+  <li>上传的图片会经过检查，只接受图片格式，每张不超过15 MB。</li>
+</ul>
+<p>你需要自己注意的是：<code>.env</code>里的密码尽量都用随机的长字符串；<code>.env</code>文件不要外传，也不要提交到git；云服务商的控制台里只放行22、80、443，以及你确实要对外开放的MCP端口。</p>
+
+<h2 id="faq">附录：出了问题怎么办</h2>
+<p>以下是一个简易的问题自查表。</p>
+<div class="wrap"><table>
+<tr><th>看到的现象</th><th>原因和处理办法</th></tr>
+<tr><td>网页能打开，但是登录不了</td><td>检查是不是用<code>https://你的域名</code> 打开的，用IP地址或者http打开都登录不了。用了Cloudflare的话，检查SSL/TLS模式是不是「Full (strict)」。服务器的系统时间偏差太大也会导致这个问题。</td></tr>
+<tr><td>登录时提示被锁定</td><td>连续输错8次密码会锁定15分钟，等一会儿再试。</td></tr>
+<tr><td>启动时提示端口被占用</td><td>在<code>.env</code>里把<code>VALLOTTON_HTTP_PORT</code>（或者MCP的<code>MCP_PUBLIC_PORT</code>）改成别的端口，运行<code>docker compose up -d</code>，再把nginx配置里<code>proxy_pass</code>的端口改成一样的，重新加载nginx。</td></tr>
+<tr><td>画到一半显示「任务中断」</td><td>画图的过程中重启了Vallotton，比如正好更新了版本。重新发送那句话即可。</td></tr>
+<tr><td>一直停在「正在构思」</td><td>大模型的官方接口连不上。可以在<code>.env</code>里配置备用线路<code>OPENROUTER_API_KEY</code>，官方接口不通时Vallotton会自动改走备用线路。设置页的「线路」里能看到当前用的是哪一条。</td></tr>
+<tr><td>出图失败，错误里有「402」</td><td>NovelAI账号里的点数（Anlas）用完了，通常是因为用了「高」画质。在生成设置里改回「中」。</td></tr>
+<tr><td>NovelAI显示「状态未知」</td><td>偶尔查不到NovelAI的账号状态，不影响画图，几分钟后会自己恢复。</td></tr>
+<tr><td>MCP客户端超时</td><td>把客户端的超时调到600秒以上。画图要等它画完才返回。</td></tr>
+</table></div>
+
+<h2 id="env">附录：环境变量一览</h2>
+<p>下面是<code>.env</code>里可以设置的项，按用途分组。「默认」是不填对应项时的默认值；标了「必填」的项目没有默认值，必须指定一个值，不填的话Vallotton会无法启动，或者无法使用对应的功能。</p>
+<p><code>.env.example</code>里给的示例值可能和默认值不同，以<code>.env</code>中实际填的为准。部署时一般只需要改<a href="#step-env">第2步</a>里列出的那几项。</p>
+<div class="wrap"><table>
+<tr><th>变量</th><th>默认</th><th>说明</th></tr>
+<tr class="group"><td colspan="3">语言模型相关</td></tr>
+<tr><td><code>LLM_PROVIDER</code></td><td><code>deepseek</code></td><td>用哪家的大模型：<code>deepseek</code>或<code>grok</code>。</td></tr>
+<tr><td class="req"><code>DEEPSEEK_API_KEY</code></td><td>—</td><td>DeepSeek的密钥。用DeepSeek时必填。</td></tr>
+<tr><td><code>DEEPSEEK_MODEL</code></td><td><code>deepseek-flash</code></td><td>用DeepSeek的哪个模型型号。</td></tr>
+<tr><td><code>DEEPSEEK_REASONING_EFFORT</code></td><td><code>max</code></td><td>DeepSeek在理解对话、规划画面时的推理强度。</td></tr>
+<tr><td><code>DEEPSEEK_DRAW_REASONING_EFFORT</code></td><td><code>max</code></td><td>DeepSeek写绘图提示词时的推理强度。</td></tr>
+<tr><td><code>DEEPSEEK_MAX_TOKENS</code></td><td><code>128000</code></td><td>一次回答最多输出多少token。如果设得太小，回答会容易被截断。</td></tr>
+<tr><td><code>DEEPSEEK_RETRIES</code></td><td><code>2</code></td><td>DeepSeek回答为空或者格式不对时，自动重试次数（DeepSeek偶尔会有格式问题）。</td></tr>
+<tr><td><code>DEEPSEEK_CONTEXT_LIMIT</code></td><td><code>1000000</code></td><td>DeepSeek上下文的上限。</td></tr>
+<tr><td><code>DEEPSEEK_LONG_CONTEXT_THRESHOLD</code></td><td><code>400000</code></td><td>DeepSeek对话上下文长度到多少时提醒你一次。</td></tr>
+<tr><td><code>OPENROUTER_API_KEY</code></td><td>空</td><td>Openrouter的密钥。由于DeepSeek官方的服务有些时候不太稳定，如果填了Openrouter的密钥，那么官方接口超时时会自动转到OpenRouter上的同一个模型。</td></tr>
+<tr><td><code>OPENROUTER_BASE</code></td><td><code>https://openrouter.ai/api/v1</code></td><td>Openrouter备用线路的地址。</td></tr>
+<tr><td><code>OPENROUTER_MODEL</code></td><td><code>deepseek/deepseek-v4.1-flash</code></td><td>Openrouter备用线路上用的模型。</td></tr>
+<tr><td><code>LLM_ROAD_BLOCKED_SECONDS</code></td><td><code>1800</code></td><td>官方接口出错以后，最长绕开它多少秒。</td></tr>
+<tr><td><code>LLM_ROAD_PROBE_SECONDS</code></td><td><code>60</code></td><td>绕开官方接口期间，每隔多少秒重试一次。</td></tr>
+<tr><td class="req"><code>GROK_API_KEY</code></td><td>—</td><td>xAI的密钥。用Grok时必填。</td></tr>
+<tr><td><code>GROK_MODEL</code></td><td><code>grok-4.6</code></td><td>用Grok的哪个模型。</td></tr>
+<tr><td><code>GROK_REASONING_EFFORT</code></td><td><code>high</code></td><td>Grok在理解对话、规划画面时的推理强度。<code>high</code>相当于xAI所说的expert档。</td></tr>
+<tr><td><code>GROK_DRAW_REASONING_EFFORT</code></td><td><code>medium</code></td><td>Grok写绘图提示词时的推理强度。</td></tr>
+<tr><td><code>GROK_TITLE_MODEL</code></td><td><code>grok-4.20-non-reasoning</code></td><td>Grok给对话自动起标题用的模型。留空就用<code>GROK_MODEL</code>。<br/>（顺带一提，用DeepSeek时起标题直接用<code>DEEPSEEK_MODEL</code>，没有单独的设置，因为DeepSeek本来就很便宜。）</td></tr>
+<tr><td><code>GROK_CONTEXT_LIMIT</code></td><td><code>500000</code></td><td>Grok上下文的上限。</td></tr>
+<tr><td><code>GROK_LONG_CONTEXT_THRESHOLD</code></td><td><code>200000</code></td><td>Grok对话上下文长度到多少时提醒你一次。</td></tr>
+<tr><td><code>GROK_MAX_TOKENS</code></td><td><code>20000</code></td><td>Grok一次回答最多输出多少token。</td></tr>
+<tr><td><code>GROK_CONTEXT_WARN_RATIO</code></td><td><code>0.8</code></td><td>上下文用到几成时开始提醒。这一项不管用哪家都生效。</td></tr>
+<tr><td><code>LLM_TIMEOUT_SECONDS</code></td><td><code>420</code></td><td>模型多少秒没有任何输出，就算超时。</td></tr>
+<tr><td><code>LLM_ANSWER_SECONDS</code></td><td><code>600</code></td><td>一次回答最多等多少秒，超过就重新问一次。</td></tr>
+<tr><td><code>LEAD_TOOL_ROUNDS</code></td><td><code>2</code></td><td>理解对话、规划画面时，最多查几次tag表。0表示不查。</td></tr>
+<tr><td><code>DRAW_TOOL_ROUNDS</code></td><td><code>4</code></td><td>把画面写成提示词时，最多查几次tag表。0表示不查。</td></tr>
+<tr><td><code>LEAD_USAGE_SCENARIO</code><br><code>DRAW_USAGE_SCENARIO</code></td><td>空</td><td>系统提示词开头的「使用场景」一段。</td></tr>
+<tr><td><code>DRAW_TEMPERATURE</code></td><td><code>0</code></td><td>把画面写成提示词时的随机程度。这一步只是翻译，不需要发挥，所以默认设为0。</td></tr>
+<tr class="group"><td colspan="3">画图相关</td></tr>
+<tr><td class="req"><code>NOVELAI_API_KEY</code></td><td>—</td><td>NovelAI的密钥，<code>pst-</code>开头。</td></tr>
+<tr><td><code>NAI_MODEL</code></td><td><code>nai-diffusion-5-full</code></td><td>中、高画质下用的NovelAI模型型号（低画质则固定用上一代的V4.5）。</td></tr>
+<tr class="group"><td colspan="3">反思和连续生成</td></tr>
+<tr><td><code>MAX_REFLECTION_ROUNDS</code></td><td><code>10</code></td><td>「反思轮数」最多能调到多少。</td></tr>
+<tr><td><code>MAX_CONTINUOUS_ROUNDS</code></td><td><code>20</code></td><td>「连续生成」最多能调到多少。</td></tr>
+<tr><td><code>FREE_RETRIES_IN_RUN</code></td><td><code>2</code></td><td>反思或连续生成中途失败时的重试次数。</td></tr>
+<tr><td><code>JOB_STALE_SECONDS</code></td><td><code>180</code></td><td>一个任务多少秒没有进展，就当作已经中断。</td></tr>
+<tr><td><code>JOB_SWEEP_SECONDS</code></td><td><code>60</code></td><td>每隔多少秒检查一次中断的任务，并发出连续生成的下一句。如果填0则表示不检查（此时连续生成也就不会继续）。</td></tr>
+<tr class="group"><td colspan="3">账号</td></tr>
+<tr><td><code>APP_USERNAME</code></td><td><code>user</code></td><td>网页登录的用户名。</td></tr>
+<tr><td class="req"><code>APP_PASSWORD</code></td><td>—</td><td>网页登录的密码。</td></tr>
+<tr><td><code>ADMIN_USERNAME</code></td><td><code>admin</code></td><td>管理后台的用户名。</td></tr>
+<tr><td class="req"><code>ADMIN_PASSWORD</code></td><td>—</td><td>管理后台的密码。</td></tr>
+<tr class="group"><td colspan="3">网站</td></tr>
+<tr><td><code>DJANGO_SECRET_KEY</code></td><td>一个不安全的占位值</td><td>用来保护登录状态的密钥。部署时建议改成一串随机字符。不改也能启动，但是不安全。</td></tr>
+<tr><td class="req"><code>DOMAIN</code></td><td>空</td><td>你的域名。只有通过这个域名访问才能登录。</td></tr>
+<tr><td><code>DJANGO_DEBUG</code></td><td><code>0</code></td><td>调试开关，1表示开启，0表示关闭。部署时保持0。如果按本教程部署，那么compose已经把它固定成0，技术改了也不生效。</td></tr>
+<tr><td><code>COOKIE_SECURE</code></td><td><code>1</code></td><td>设置为1时，登录状态只通过https传输。只有临时开启<a href="#ops">管理后台</a>时才需要设成0，用完改回。</td></tr>
+<tr><td><code>TRUSTED_PROXY_HOPS</code></td><td><code>1</code></td><td>服务器上有几层反向代理。按本教程部署的话是1，一般不用改。数错了会让登录次数限制失效。</td></tr>
+<tr class="group"><td colspan="3">数据库和图片</td></tr>
+<tr><td class="req"><code>POSTGRES_PASSWORD</code></td><td>—</td><td>数据库的密码，填一串随机字符即可。</td></tr>
+<tr><td><code>POSTGRES_DB</code><br><code>POSTGRES_USER</code></td><td><code>vallotton</code></td><td>数据库名和用户名，一般不用改。</td></tr>
+<tr><td><code>POSTGRES_HOST</code><br><code>POSTGRES_PORT</code></td><td><code>127.0.0.1</code><br><code>5432</code></td><td>数据库的地址和端口。按本教程部署的话，compose会固定连到自己的数据库容器，不用改。只在docker外运行后端时才会用到。</td></tr>
+<tr><td><code>MEDIA_DIR</code></td><td><code>./tmp/media</code></td><td>服务器上存放图片的目录，部署时建议改成绝对路径。</td></tr>
+<tr class="group"><td colspan="3">端口和MCP</td></tr>
+<tr><td><code>VALLOTTON_HTTP_PORT</code></td><td><code>8300</code></td><td>Vallotton在服务器本机上开的端口，nginx会把访问转到这里。一般不需要改，除非和和别的应用端口冲突。</td></tr>
+<tr><td><code>MCP_PUBLIC_PORT</code></td><td><code>8301</code></td><td>MCP在服务器上的端口。只在启用MCP时用到。</td></tr>
+<tr><td><code>MCP_BIND</code></td><td><code>127.0.0.1</code></td><td>MCP的端口对谁开放。<code>127.0.0.1</code>表示只有服务器本机能访问，<code>0.0.0.0</code>表示外面可以直接访问。</td></tr>
+<tr><td class="req"><code>MCP_TOKEN</code></td><td>—</td><td>访问MCP时要带上的密钥。启用MCP时必填。</td></tr>
+<tr><td><code>MCP_HOST</code><br><code>MCP_PORT</code></td><td><code>127.0.0.1</code><br><code>8766</code></td><td>在docker外单独运行<code>mcp/server.py</code>时的监听地址和端口。使用compose时不用改。</td></tr>
+<tr><td><code>VALLOTTON_BACKEND_URL</code></td><td><code>http://127.0.0.1:8000</code></td><td>MCP把请求转到哪个后端。使用compose时会自动指向后端容器，不用改。</td></tr>
+</table></div>
+<p>只在开发和测试时用到的几个变量（比如把数据库换成sqlite、不调用NovelAI而是画占位图）这里没有列出。</p>
+
+<div class="pager"><a href="guide.html">← 进阶指南</a><a href="index.html">前言 →</a></div>
+</article>
+</main>
+<footer class="foot">
+  <span>Vallotton · AI绘图工作室</span>
+  <a href="quickstart.html">快速上手</a>
+  <a href="guide.html">进阶指南</a>
+  <a href="deploy.html">部署教程</a>
+</footer>
+</body>
+</html>

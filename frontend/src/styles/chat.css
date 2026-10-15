@@ -1,0 +1,942 @@
+/* ==========================================================================
+   the plate: conversation
+   ========================================================================== */
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 50px;
+  padding: 8px 26px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+}
+/* Both rails' fold controls float over this bar, so the room for them is
+   reserved here — this rule owns .chat-header's padding, and a reservation
+   written in layout.css would simply lose to it. */
+@media (min-width: 861px) {
+  .chat-header { padding-left: 54px; padding-right: 58px; }
+  .chat-header.no-rail { padding-right: 20px; }
+}
+/*
+ * On a phone the window's own bar says folder and name already, so this said
+ * the same thing a second time, one line further down.
+ *
+ * It lives here rather than in layout.css because the rule at the top of this
+ * file is unconditional: a `display` written over there loses to this file
+ * whatever the width, which is how the second line came back.
+ *
+ * The library's copy goes the same way, and its 归档 moves down into the row
+ * that names the folder — so a folder page is the bar and one row, not three
+ * lines all saying the same word.
+ */
+@media (max-width: 860px) {
+  .chat-header { display: none; }
+}
+.chat-header-title {
+  max-width: 46%;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--accent-deep);
+}
+
+/* NOTE: no scroll-behavior:smooth — programmatic scrollTop must be instant,
+   or the settle animation sweeps past the top and trips load-older-history. */
+.chat-scroll { flex: 1; overflow-y: auto; }
+
+.chat-column {
+  max-width: 730px;
+  margin: 0 auto;
+  padding: 34px 26px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.load-earlier {
+  align-self: center;
+  padding: 5px 16px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.load-earlier:hover { border-color: var(--accent); color: var(--accent-deep); }
+.load-earlier:disabled { opacity: 0.5; }
+
+.load-failed {
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 0;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+/* ---- rows --------------------------------------------------------------- */
+.msg-row { display: flex; gap: 13px; }
+.msg-row.user { flex-direction: row-reverse; }
+.chat-column > .msg-row { content-visibility: auto; contain-intrinsic-size: auto 140px; }
+
+/* the portrait stands on its own, like the masthead mark — no ground */
+.msg-avatar {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  object-fit: contain;
+}
+
+.msg-body { min-width: 0; max-width: min(88%, 600px); }
+.msg-row.user .msg-body { display: flex; flex-direction: column; align-items: flex-end; }
+
+/* the user's words sit on a wash; the assistant speaks on bare paper */
+.bubble { border-radius: var(--r-2); overflow-wrap: break-word; }
+.msg-row.user .bubble { padding: 10px 15px; background: var(--wash); }
+.msg-row.assistant .bubble {
+  padding: 2px 0;
+  background: transparent;
+  font-size: 15.5px;
+  line-height: 1.85;
+}
+/* the red type is the whole signal — a rule beside it framed a failure as a
+   pull-quote */
+/*
+ * A failure, folded: the word and one line of why, on a bubble that opens.
+ * Text-align because a <button> centres its content, and this is a sentence.
+ */
+.msg-row.assistant .bubble.error-bubble {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  max-width: 100%;
+  text-align: left;
+  color: var(--danger);
+  cursor: pointer;
+  transition: background var(--fast) var(--ease);
+}
+.msg-row.assistant .bubble.error-bubble:hover { background: var(--danger-soft); }
+.error-bubble .error-head { flex-shrink: 0; font-weight: 600; }
+.error-bubble .error-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  opacity: 0.85;
+}
+.bubble > .md :first-child { margin-top: 0; }
+.bubble > .md :last-child { margin-bottom: 0; }
+
+/* ---- the app's own voice ------------------------------------------------ */
+.msg-system {
+  /* a note about the messages around it, so it lines up with them */
+  align-self: flex-start;
+  max-width: 540px;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 15px;
+  border-left: 1px solid var(--brass);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.8;
+}
+.msg-system svg { flex-shrink: 0; margin-top: 3px; color: var(--brass); }
+
+/* ---- meta --------------------------------------------------------------- */
+.msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  margin-top: 7px;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+.msg-row.user .msg-meta { justify-content: flex-end; }
+
+.msg-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: var(--r-1);
+  color: var(--ink-3);
+  font-size: 11.5px;
+  transition: color var(--fast) var(--ease);
+}
+.msg-action:hover { color: var(--accent); }
+.msg-action svg { opacity: 0.75; }
+
+/* ---- plates ------------------------------------------------------------- */
+.upload-strip { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; }
+.msg-row.user .upload-strip { justify-content: flex-end; }
+.upload-thumb {
+  display: block;
+  max-width: 140px;
+  max-height: 140px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  cursor: zoom-in;
+}
+
+/* Small and set in the mono face: it is a handle to type back, not a label. */
+.draw-id {
+  margin-top: 9px;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  letter-spacing: .04em;
+  user-select: all;
+}
+
+.gen-grid {
+  display: grid;
+  gap: 9px;
+  margin-top: 11px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.gen-grid.single { grid-template-columns: minmax(0, 1fr); max-width: 410px; }
+.gen-item {
+  display: block;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  overflow: hidden;
+  background: var(--surface-2);
+  cursor: zoom-in;
+  transition: border-color var(--fast) var(--ease);
+}
+.gen-item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  aspect-ratio: var(--ar, auto);
+}
+.gen-item:hover { border-color: var(--accent); }
+/* the turn's main picture: the one an edit starts from */
+.gen-item.main { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.draw-continues { margin-left: 10px; user-select: none; }
+
+/* a slow breath while painting — never a bouncing skeleton */
+.gen-item.placeholder {
+  aspect-ratio: var(--ar, 2 / 3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  animation: breathe 1.8s ease-in-out infinite;
+}
+@keyframes breathe { 50% { opacity: 0.5; } }
+
+/* ---- the plate's caption: prompts --------------------------------------- */
+.prompts-box {
+  margin-top: 10px;
+  border-top: 1px solid var(--rule);
+  font-size: var(--t-caption);
+}
+.prompts-summary { padding: 7px 0; }
+.prompts-content { padding: 2px 0 10px; }
+.p-label {
+  margin-top: 9px;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent-deep);
+}
+.p-value {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---- working ------------------------------------------------------------ */
+.thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+/* one slow line breathing, per the brief — not jumping dots */
+.thinking-dots {
+  width: 22px;
+  height: 1px;
+  flex-shrink: 0;
+  background: var(--accent);
+  animation: pulse-line 1.6s ease-in-out infinite;
+}
+.thinking-dots span { display: none; }
+@keyframes pulse-line { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
+/* a retry is not a phase going well — the same calm grey line would read as
+   "still working" when what happened is that an answer had to be thrown away */
+.thinking.warn { color: var(--brass); }
+.thinking.warn .thinking-dots { background: var(--brass); }
+
+.stop-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease),
+    background var(--fast) var(--ease);
+}
+.stop-btn:hover { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+
+/* ==========================================================================
+   composer
+   ========================================================================== */
+
+/* never squeezed: the shell is exactly one viewport tall, and whatever else
+   has to give when the input grows, it is not the input */
+.composer-wrap {
+  flex-shrink: 0;
+  padding: 10px 26px calc(20px + env(safe-area-inset-bottom));
+  background: var(--paper);
+}
+
+.composer {
+  max-width: 730px;
+  margin: 0 auto;
+  padding: 9px 11px;
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-2);
+  transition: border-color var(--fast) var(--ease);
+}
+.composer:focus-within { border-color: var(--accent); }
+.composer.dragover { border-color: var(--accent); background: var(--accent-softer); }
+
+.composer textarea {
+  display: block;
+  width: 100%;
+  /* How tall the input may grow before it scrolls instead. Composer.tsx reads
+     this and writes the height inline, because only it knows how tall the
+     text actually is — so this is the one place the number is set. */
+  --composer-max: 200px;
+  max-height: var(--composer-max);
+  padding: 5px 6px;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  line-height: 1.65;
+}
+.composer textarea::placeholder { color: var(--ink-3); }
+
+.composer-bar { display: flex; align-items: center; gap: 4px; margin-top: 2px; }
+.composer-hint {
+  margin-left: auto;
+  padding-right: 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+  user-select: none;
+}
+
+.attach-strip { display: flex; flex-wrap: wrap; gap: 7px; padding: 4px 6px 7px; }
+.attach-chip {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  overflow: hidden;
+}
+.attach-chip img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.attach-chip .remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 17px;
+  height: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-1);
+  background: rgba(31, 38, 51, 0.6);
+  color: var(--on-accent);
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* the send key: the one solid mark on the page. Always last, always right. */
+.send-btn {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-2);
+  background: var(--accent);
+  color: var(--on-accent);
+  transition: background var(--fast) var(--ease), opacity var(--fast) var(--ease);
+}
+.send-btn:hover { background: var(--accent-strong); }
+.send-btn:disabled { opacity: 0.3; cursor: default; background: var(--accent); }
+.send-btn.stop { background: var(--ink); }
+.send-btn.stop:hover { background: var(--ink-2); }
+.send-btn.stop:disabled { background: var(--ink-3); }
+/* Mid-reflection a picture already exists, and stopping keeps it — the turn
+   finishes as an ordinary one. Not the usual hard black, then. */
+.send-btn.stop.keeps {
+  background: var(--accent-softer);
+  color: var(--accent-deep);
+  /* the pale ground sits too close to the composer's own to read as a button
+     on its own; the hairline is what gives it an edge */
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.send-btn.stop.keeps:hover { background: var(--accent-soft); }
+.send-btn.stop.keeps:disabled { background: var(--accent-softer); opacity: 0.4; }
+
+/* ==========================================================================
+   lightbox
+   ========================================================================== */
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 26, 38, 0.9);
+  animation: fade-in var(--fast) var(--ease);
+  /* the browser must not claim the gesture: panning a zoomed picture is ours,
+     and so is the swipe that would otherwise page back */
+  touch-action: none;
+  overscroll-behavior: contain;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* the window the picture moves inside — clipped, so a panned edge does not
+   slide out over the controls */
+/* The frame is the whole screen, not a box the size of the picture. Sized to
+   the picture, a zoom would immediately be cut off by its own edges — the
+   thing being magnified needs somewhere to grow into. What it is clipped by
+   now is the window, which is what you would expect. */
+.lightbox-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.lightbox.zoomed .lightbox-frame { cursor: grab; }
+.lightbox.zoomed .lightbox-frame:active { cursor: grabbing; }
+.lightbox-frame img {
+  display: block;
+  max-width: min(94vw, 1400px);
+  max-height: 86vh;
+  border-radius: var(--r-2);
+  /* The transform is written per frame while dragging, so it is deliberately
+     not transitioned there — see .dragging. Everywhere else a transition is
+     what makes a swipe that did not reach the threshold spring back instead
+     of teleporting. */
+  transition: transform var(--base) var(--ease), opacity var(--base) var(--ease);
+  transform-origin: center;
+  will-change: transform;
+  -webkit-user-drag: none;
+}
+.lightbox-frame img.dragging { transition: none; }
+.lightbox-bar {
+  position: fixed;
+  left: 50%;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  /* `left: 50%` leaves only half the window to be wide in, which is plenty at
+     1280px and 195px on a phone — where this folded "1 / 4" into three lines.
+     max-content ignores that and takes the width the text actually needs. */
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 18px;
+  border-radius: var(--r-2);
+  background: rgba(255, 255, 255, 0.09);
+  color: #e7ecf6;
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+}
+.lightbox-bar a, .lightbox-bar button {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--r-1);
+  color: #e7ecf6;
+  text-decoration: none;
+}
+.lightbox-bar a:hover, .lightbox-bar button:hover { background: rgba(255, 255, 255, 0.16); }
+/* Once the picture has gone down to the composer the button says so and stops
+   taking presses: the composer is behind the picture, so a second press is a
+   slip you would have no way of seeing. */
+/* the star is filled on the main picture and hollow on the others; filled, it
+   is a mark rather than a control, so it takes no presses and no hover */
+.lightbox-main.on { color: var(--accent); cursor: default; }
+.lightbox-main.on:hover { background: transparent; }
+.lightbox-main.on svg { fill: currentColor; }
+.lightbox-add.on, .lightbox-add.on:hover {
+  color: #a9dcb9;
+  background: rgba(169, 220, 185, 0.18);
+}
+/*
+ * Against the window's edges, not beside the picture.
+ *
+ * Magnified, the picture fills the frame — an arrow placed next to it is an
+ * arrow on top of the thing you zoomed in to see. Out here it is always on
+ * bare ground, and a full-height target is easier to hit besides.
+ */
+.lightbox-nav {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.55);
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.lightbox-nav:hover { color: #fff; }
+.lightbox-nav.prev {
+  left: 0;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.28), transparent);
+}
+.lightbox-nav.next {
+  right: 0;
+  background: linear-gradient(to left, rgba(0, 0, 0, 0.28), transparent);
+}
+.lightbox-nav.prev:hover { background: linear-gradient(to right, rgba(0, 0, 0, 0.45), transparent); }
+.lightbox-nav.next:hover { background: linear-gradient(to left, rgba(0, 0, 0, 0.45), transparent); }
+/* on a phone the finger does this job; the arrows would only eat the swipe */
+@media (max-width: 760px) {
+  .lightbox-nav { display: none; }
+}
+.lightbox-close {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top));
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-2);
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+}
+.lightbox-close:hover { background: rgba(255, 255, 255, 0.18); }
+
+/* ==========================================================================
+   selection chips above the composer
+   ========================================================================== */
+
+/* the same box as the composer below, so the first chip starts exactly where
+   the placeholder text does */
+.selection-chips {
+  display: flex;
+  flex-wrap: wrap;
+  --chip-gap: 6px;
+  --chip-row: calc(18px + 6px + 2px); /* line-height + padding + border */
+  gap: var(--chip-gap);
+  max-width: 730px;
+  margin: 0 auto 7px;
+  padding: 0 12px;
+}
+.selection-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-1);
+  background: var(--surface);
+  font-size: 11.5px;
+  /* stated rather than left to the font, so --chip-row below is arithmetic
+     and not a number somebody measured once */
+  line-height: 18px;
+  color: var(--ink-2);
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.selection-chip:hover { border-color: var(--accent); color: var(--accent-deep); }
+.selection-chip svg { color: var(--accent); }
+.selection-chip.setting svg { color: var(--ink-3); }
+/* an entry from the conversation's own layer: blue-green, where the project's
+   are cobalt and ink -- the same signal as the 「本对话」 label in the rail */
+.selection-chip.own { color: var(--own-deep); }
+.selection-chip.own svg { color: var(--own); }
+.selection-chip.own:hover { border-color: var(--own); color: var(--own-deep); }
+
+/* The three setting chips carry no frame. A chip that says what this turn will
+   carry is a thing; a chip that says how it will behave is a note about the
+   composer it sits on, and a box around it reads as the former. The colour is
+   the whole signal, so it is brass dark enough to be read as text. */
+.selection-chip.sticky,
+.selection-chip.continuous,
+.selection-chip.reflection {
+  border-color: transparent;
+  color: var(--brass-deep);
+}
+/* hover brings the frame back, and only the frame: the brass is what says
+   which three of these chips are settings */
+.selection-chip.sticky:hover,
+.selection-chip.continuous:hover,
+.selection-chip.reflection:hover {
+  border-color: var(--accent);
+  color: var(--brass-deep);
+}
+.selection-chip.sticky svg,
+.selection-chip.continuous svg,
+.selection-chip.reflection svg { color: currentColor; }
+.chip-variant {
+  padding-left: 6px;
+  margin-left: 1px;
+  border-left: 1px solid var(--rule);
+  color: var(--ink-3);
+}
+
+
+/* ==========================================================================
+   jump-to-end buttons
+
+   They only appear once you are genuinely far from an end, so they never
+   sit over the text you are reading.
+   ========================================================================== */
+
+.scroll-jumps {
+  position: absolute;
+  right: 22px;
+  bottom: 122px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* On a wide screen they belong to the transcript, not to the window: pull
+   them off the window's edge and onto the composer's right shoulder, just
+   above it. .app-main is the containing block and the rail sits outside it,
+   so 50% here IS the column's centre — 365px is half of .chat-column's
+   max-width, and the rest clears its gutter. The max() keeps them on screen
+   when the area is narrower than the column. */
+@media (min-width: 861px) {
+  .scroll-jumps { right: max(14px, calc(50% - 365px - 42px)); }
+}
+.scroll-jump {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  color: var(--ink-3);
+  box-shadow: var(--lift);
+  animation: fade-in var(--fast) var(--ease);
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.scroll-jump:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ==========================================================================
+   what a finished picture was drawn from, kept with the picture
+   ========================================================================== */
+
+.used-library {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+.used-toggle,
+.prompts-summary .used-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  transition: color var(--fast) var(--ease);
+}
+.used-toggle:hover { color: var(--accent); }
+.used-toggle svg { transform: rotate(-90deg); transition: transform var(--base) var(--ease); }
+.used-toggle.open svg { transform: rotate(0deg); }
+
+.used-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-1);
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.used-chip svg { color: var(--accent); }
+.used-chip.setting svg { color: var(--ink-3); }
+.used-chip.own { color: var(--own-deep); }
+.used-chip.own svg { color: var(--own); }
+
+.used-collapse { width: 100%; }
+.used-detail { width: 100%; margin-top: 2px; padding: 4px 0 10px; }
+.used-entry + .used-entry {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+.used-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.used-entry-head svg { color: var(--accent); }
+.used-entry-body,
+.used-entry-variant {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+}
+.used-entry-variant {
+  padding-left: 9px;
+  border-left: 1px solid var(--rule);
+}
+.used-entry-variant b { display: block; font-weight: 500; color: var(--ink); }
+
+@media (max-width: 860px) {
+  .chat-column { padding: 18px 14px 8px; gap: 22px; }
+  .msg-body { max-width: 92%; }
+  .msg-avatar { width: 28px; height: 28px; }
+  .gen-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  /* 12px each side — the right rail's sheet is inset to match, so the two
+     line up. Anything that changes here has to change there too. */
+  .composer-wrap { padding: 8px 12px calc(12px + env(safe-area-inset-bottom)); }
+  /* the send key holds the right edge on its own here, and the hint is about
+     a keyboard this screen does not have */
+  .composer-hint { display: none; }
+  /* Five actions and a timestamp do not fit one phone-width line, and what
+     gave way was the labels — 重绘 broke across two lines mid-word. The time
+     takes a line of its own and the actions keep theirs. */
+  /* Five actions and a timestamp do not fit one phone-width line, and what
+     gave way was the labels — 重绘 broke across two lines mid-word. The time
+     takes a line of its own; the actions keep theirs, tightened just enough
+     to also clear the 30px column the rail's control floats in at right:22px,
+     since this row is the last thing in a message and so the thing that ends
+     up underneath it. */
+  .msg-meta { flex-wrap: wrap; row-gap: 2px; }
+  .msg-time { flex-basis: 100%; }
+  .msg-action { padding: 2px 4px; white-space: nowrap; }
+  .msg-row.assistant .msg-meta { padding-right: 8px; }
+  /* the user's row is flush right, so it runs straight into that column and
+     has only two actions — it can afford the full reservation */
+  .msg-row.user .msg-meta { padding-right: 46px; }
+  /* Two rows, then it scrolls. On a phone these chips sit directly above
+     the composer, and a long selection used to push the text box up the
+     screen — a row of reminders taking more room than the thing you came to
+     type in.
+
+     No reservation on the right any more: the rail's control used to float
+     over this row and does not — it now sits above it — so the gap it was
+     being kept clear of was a gap for nothing. */
+  .selection-chips {
+    max-height: calc(var(--chip-row) * 2 + var(--chip-gap));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  /* A phone is short, and this row eats the transcript as it grows. Whichever
+     is smaller: the desktop cap, or a third of the window. */
+  .composer textarea { --composer-max: min(200px, 32dvh); }
+  /* Both floating controls hover over the transcript just above this row, so
+     they are measured from its top edge — --composer-h, published by
+     Composer.tsx — and rise with it. A fixed offset from the window bottom
+     put them inside the input the moment the text ran to a few lines.
+     The rail's control sits at +16px; these clear it. */
+  .scroll-jumps { right: 22px; bottom: calc(var(--composer-h, 96px) + 60px); }
+}
+
+/* the stage line, once there is already a reply above it to explain */
+.thinking-line { margin-top: 6px; padding-left: 2px; }
+
+/* ==========================================================================
+   a library proposal, in the transcript
+   Not a dialog and not a rail: the model asking to write something down is
+   part of what happened in this conversation, so it is read in sequence with
+   the rest of it. The one warm hairline again — the app speaking on the
+   model's behalf.
+   ========================================================================== */
+
+.proposal-turn {
+  align-self: center;
+  width: min(620px, 100%);
+  margin: 2px 0 4px;
+  padding: 11px 13px;
+  background: var(--surface-soft);
+  border: 1px solid var(--rule-rail);
+  border-left: 2px solid var(--brass);
+  border-radius: var(--r-2);
+}
+.proposal-turn-head {
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+  margin-bottom: 8px;
+}
+.proposal-turn .proposal-entry + .proposal-entry {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+.proposal-turn.resolved {
+  padding: 7px 13px;
+  background: none;
+  border-color: transparent;
+  border-left-color: var(--rule);
+}
+.proposal-turn.resolved .proposal-turn-head { margin-bottom: 0; color: var(--ink-3); }
+.proposal-turn.resolved.applied .proposal-turn-head::before { content: "✓  "; color: var(--brass); }
+.proposal-note {
+  margin-top: 9px;
+  padding: 7px 9px;
+  background: var(--surface);
+  border-left: 2px solid var(--brass);
+  border-radius: var(--r-1);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
+/* ==========================================================================
+   reflection, as a footnote on the turn
+   A property of this picture, sitting with the library entries that are also
+   properties of it — not a message, not a card. What reflection actually said
+   is a paragraph a round and lives under 「检查」.
+   ========================================================================== */
+
+.reflection-note-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.reflection-note-line svg { color: var(--brass); flex-shrink: 0; }
+/* it and 用到的资料 are the same kind of note, so they sit on one rhythm */
+.reflection-note-line + .used-library { margin-top: 5px; }
+
+/* the one chip that is not about content: it says the turn will behave
+   differently, so it does not look like the entries beside it */
+
+/* the app typed this message, not the user */
+.auto-sent-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 5px;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.auto-sent-note svg { color: var(--brass); flex-shrink: 0; }
+/* a user row is right-aligned, and its note belongs on the same edge */
+.msg-row.user .auto-sent-note { align-self: flex-end; }
+
+
+/* ---- the swipe is far enough -----------------------------------------------
+   A threshold you cannot see is one you learn by guessing: you let go, nothing
+   happens, and you cannot tell whether you moved too little or the gesture
+   does not exist at all. This lights the edge you are about to reach, and
+   stays dark when that direction has nowhere to go. */
+.lightbox-edge {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 96px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--fast) var(--ease);
+}
+/* a glow off the edge rather than a line on it: the answer is "this side", and
+   a broad light says that from the corner of the eye, which is where you are
+   looking when your thumb is moving */
+.lightbox-edge.prev {
+  left: 0;
+  background: linear-gradient(to right, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0));
+}
+.lightbox-edge.next {
+  right: 0;
+  background: linear-gradient(to left, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0));
+}
+.lightbox-edge.on { opacity: 1; }
+
+
+/* ---- what a continuous run came to ----------------------------------------
+   A run that stumbled is not a failed run — it is a run with a gap in it, and
+   the pictures that did come out are above this line. So it reads as a tally,
+   not as an error. */
+.run-summary {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: 540px;
+  margin: 6px 0 2px;
+  padding: 9px 15px;
+  border-left: 1px solid var(--brass);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+}
+.run-summary svg { color: var(--brass); flex-shrink: 0; }
+.run-summary .msg-action { margin-left: auto; }
+
+
+/* a proposal's tag lines, under the prose they go with */
+.proposal-lines { display: grid; gap: 3px; margin-top: 6px; font-size: 12px; }
+.proposal-lines > div { display: flex; gap: 8px; align-items: baseline; }
+.proposal-line-part { color: var(--ink-2); flex-shrink: 0; }
+.proposal-lines code { font-family: "JetBrains Mono", Consolas, monospace; font-size: 11.5px; color: var(--ink-2); word-break: break-word; }

@@ -1,0 +1,38 @@
+# =====================================================================
+# Host nginx vhost for Vallotton (the ONLY public entry point)
+#
+# Replace every YOUR_DOMAIN below with your real domain (same value as
+# DOMAIN in .env). The real domain lives only on the server — never in git.
+#
+#   sudo cp deploy/YOUR_DOMAIN.conf /etc/nginx/sites-available/YOUR_DOMAIN
+#   sudo ln -s /etc/nginx/sites-available/YOUR_DOMAIN /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+#   sudo certbot --nginx -d YOUR_DOMAIN      # adds HTTPS + redirect
+#
+# certbot rewrites this file in place to add the TLS server block.
+# =====================================================================
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name YOUR_DOMAIN;
+
+    # uploads can carry several reference images
+    client_max_body_size 100m;
+
+    # ---- the web app (compose "web" container) ----
+    location / {
+        proxy_pass http://127.0.0.1:8300;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        # overwrite (not $proxy_add_x_forwarded_for): a caller-supplied
+        # X-Forwarded-For must never reach the app's throttle
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+    }
+
+    # NOTE: MCP is NOT proxied here — it is accessed directly via
+    # server-IP:MCP_PUBLIC_PORT (set MCP_BIND=0.0.0.0 in .env). This vhost
+    # only serves the web frontend.
+}

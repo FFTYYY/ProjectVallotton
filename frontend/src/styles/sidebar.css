@@ -1,0 +1,667 @@
+/* ==========================================================================
+   The left rail: masthead, the two new-chat actions, the tabs, and the three
+   lists behind them (conversations, the project tree, the archive).
+
+   Every hairline in here is drawn in --rule-rail and inset to the same 22px
+   the rail's type is: the plate's hairline is invisible against the rail's
+   darker ground, and rules that start in different places read as clutter.
+   ========================================================================== */
+
+.sidebar {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--rail);
+  border-right: 1px solid var(--rule-rail);
+  z-index: 40;
+}
+
+/* no rule under the masthead — whitespace separates it from the list */
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 22px 22px 10px;
+}
+/* the mark stands on its own — no ground behind it. The arch is saved for
+   the welcome plate and the login card, where the brand introduces itself. */
+.sidebar-logo {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.sidebar-title {
+  font-family: var(--font-display);
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: var(--accent-deep);
+}
+
+/* ==========================================================================
+   the two new-chat actions
+
+   Neither draws a frame at rest — each is a line of type with a mark beside
+   it. The whole row reverses to ink on hover, so the affordance appears under
+   the cursor instead of shouting from across the page.
+   ========================================================================== */
+
+/* The settings entry sits above 新对话 — quieter than it, because it is the
+   rarer errand. Same shape so the top of the rail reads as one list. */
+.sidebar-settings {
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: calc(100% - 28px);
+  margin: 12px 14px 0;
+  padding: 7px 12px;
+  border-radius: var(--r-2);
+  color: var(--ink-3);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.sidebar-settings:hover { background: var(--accent-softer); color: var(--accent-deep); }
+.sidebar-settings.active { color: var(--accent-deep); }
+.sidebar-settings svg { flex-shrink: 0; }
+
+.new-chat-btn {
+  /* it is an <a> now (middle-click opens a tab), so the link colour and
+     underline every other anchor gets have to be turned back off */
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: calc(100% - 28px);
+  margin: 14px 14px 12px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-align: left;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.new-chat-btn svg { color: var(--accent); transition: color var(--fast) var(--ease); }
+.new-chat-btn:hover { background: var(--accent); color: var(--on-accent); }
+.new-chat-btn:hover svg { color: var(--on-accent); }
+.new-chat-btn:active { background: var(--accent-strong); }
+
+/* the second one: the same act aimed at a project, so it sits quieter */
+.new-chat-btn.in-folder {
+  margin-top: -6px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.new-chat-btn.in-folder svg { color: var(--ink-3); }
+.new-chat-btn.in-folder:disabled { opacity: 0.38; cursor: default; }
+.new-chat-btn.in-folder:disabled:hover { background: transparent; color: var(--ink-2); }
+.new-chat-btn.in-folder:disabled:hover svg { color: var(--ink-3); }
+.new-chat-btn.in-folder span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   tabs: a baseline rule with one bar travelling under it
+   ========================================================================== */
+
+.sidebar-tabs {
+  position: relative;
+  display: flex;
+  margin: 0 22px;
+  border-bottom: 1px solid var(--rule-rail);
+}
+.sidebar-tabs button {
+  flex: 1;
+  padding: 7px 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-indent: 0.12em;
+  color: var(--ink-3);
+  transition: color var(--fast) var(--ease);
+}
+.sidebar-tabs button:hover { color: var(--ink-2); }
+.sidebar-tabs button.active { color: var(--accent-deep); }
+
+/* one share per tab: as wide as the label above it, travelling by whole tabs */
+.tab-indicator {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: calc(100% / 3);
+  height: 2px;
+  background: var(--accent);
+  transition: transform var(--base) var(--ease);
+}
+.sidebar-tabs.tab-list .tab-indicator { transform: translateX(0); }
+.sidebar-tabs.tab-projects .tab-indicator { transform: translateX(100%); }
+.sidebar-tabs.tab-archived .tab-indicator { transform: translateX(200%); }
+
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  animation: tab-in var(--base) var(--ease);
+}
+
+/* ==========================================================================
+   a selectable row
+
+   The conversation list and the project tree are different shapes but the
+   same idea, so "hovered" and "selected" are defined once here and both wear
+   them. Selected is deliberately loud: on a rail this dense, a two-percent
+   tint is not a signal.
+   ========================================================================== */
+
+.conv-list { flex: 1; overflow-y: auto; padding: 12px 14px 18px; }
+
+.conv-list-empty {
+  padding: 16px 10px;
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--ink-3);
+}
+
+.conv-item,
+.tree-row {
+  position: relative;
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+/* the selected mark: a bar in the margin plus a real change of ground */
+.conv-item::before,
+.tree-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background var(--fast) var(--ease);
+}
+.conv-item:hover,
+.tree-row:hover { background: var(--accent-softer); color: var(--accent-deep); }
+.conv-item.active,
+.tree-row.active {
+  background: var(--tint-soft);
+  color: var(--accent-deep);
+}
+.conv-item.active::before,
+.tree-row.active::before { background: var(--accent); }
+/* The selected row sits on a much deeper ground, and the quiet parts of it
+   did not follow: --ink-3 lands at 3.7:1 on --tint-soft, the worst contrast
+   anywhere in the app. They step down one rank with the row. */
+.conv-item.active .conv-item-folder,
+.conv-item.active .conv-item-folder svg,
+.conv-item.active .conv-item-preview,
+.tree-row.active svg { color: var(--ink-2); }
+
+/* ---- the conversation list --------------------------------------------- */
+
+.conv-item {
+  display: block;
+  width: 100%;
+  padding: 9px 30px 9px 12px;
+  text-align: left;
+  text-decoration: none;
+}
+.conv-item.active .conv-item-title { color: var(--accent-deep); font-weight: 600; }
+
+.conv-item-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conv-item-preview {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conv-item-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 4px;
+  vertical-align: 1px;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  color: var(--accent-deep);
+  border: 1px solid var(--tint);
+  border-radius: var(--r-1);
+}
+/* the folder a listed conversation belongs to, said quietly before its name */
+.conv-item-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 6px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.conv-item-folder svg { color: var(--ink-3); }
+
+.conv-item.renaming { padding: 4px 8px; }
+.conv-rename-input { font-size: 13.5px; }
+
+.conv-item-menu-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-1);
+  color: var(--ink-3);
+}
+.conv-item:hover .conv-item-menu-btn,
+.conv-item.menu-open .conv-item-menu-btn { display: flex; }
+.conv-item-menu-btn:hover { color: var(--accent); }
+
+/* ==========================================================================
+   the row menu — one popover, both lists
+   ========================================================================== */
+
+.conv-menu {
+  position: absolute;
+  right: 6px;
+  top: calc(50% + 14px);
+  z-index: 60;
+  min-width: 130px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--rule-rail);
+  border-radius: var(--r-2);
+  box-shadow: var(--lift);
+  transform-origin: top right;
+  animation: menu-in var(--fast) var(--ease);
+}
+.conv-menu button {
+  display: block;
+  width: 100%;
+  padding: 7px 11px;
+  text-align: left;
+  border-radius: var(--r-1);
+  font-size: 13px;
+  color: var(--ink-2);
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.conv-menu button:hover { background: var(--accent-softer); color: var(--accent-deep); }
+.conv-menu button.danger { color: var(--danger); }
+.conv-menu button.danger:hover { background: var(--danger-soft); }
+.conv-menu button:disabled { opacity: 0.4; cursor: default; }
+.conv-menu button:disabled:hover { background: none; color: var(--ink-2); }
+
+/* the tree's copy hangs off the right edge, like the conversation list's */
+.tree-menu { position: absolute; right: 12px; left: auto; top: auto; }
+
+/* ==========================================================================
+   the project tree
+
+   One vertical list where indentation carries the hierarchy.
+   ========================================================================== */
+
+.project-pane { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+
+.new-folder-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 22px 8px;
+  padding: 6px 0;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  transition: color var(--fast) var(--ease);
+}
+.new-folder-btn:hover { color: var(--accent); }
+
+.tree-list { position: relative; padding-bottom: 10px; }
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  cursor: pointer;
+  /* a press-and-hold starts a drag; a plain swipe still scrolls the list */
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  animation: row-in var(--fast) var(--ease);
+}
+body.dragging-tree .tree-row { animation: none; }
+.tree-row.folder { font-weight: 500; color: var(--ink); }
+.tree-row.dragging { opacity: 0.32; }
+.tree-row svg { flex-shrink: 0; color: var(--ink-3); }
+.tree-row.folder svg { color: var(--accent); }
+.tree-row.active svg { color: var(--accent); }
+.tree-row.active { font-weight: 600; }
+
+/* dropping ON a folder puts the item inside it. The row does NOT move aside
+   to make a slot — it outlines itself instead, so the thing you are aiming at
+   stays exactly where you aimed. */
+.tree-row.drop-into {
+  background: var(--tint-soft);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  color: var(--accent-deep);
+}
+
+/* ---- the gaps between rows ---------------------------------------------
+ *
+ * Invisible and weightless until a drag is over one, at which point it opens
+ * into a real slot. The dash starts at the indent of the level it would drop
+ * into, which is what distinguishes "last inside this folder" from "first
+ * one after it" — two different gaps at the same place on screen.
+ *
+ * The hit area is taller than the gap and overhangs the rows either side, so
+ * a 2px line is still easy to aim at; the middle of a row stays the folder's
+ * own target.
+ */
+/*
+ * Indentation comes from nesting, not from a computed padding — which is also
+ * what gives each gap its own indent for free.
+ */
+.tree-children {
+  position: relative;
+  /* how far a level steps in, and where the parent's chevron sits: the row
+     pads 8px and the chevron is 14px wide, so its centre is 15px in. Both are
+     named because the branch line below is drawn FROM one relative to the
+     other, and a bare number in each would drift apart the first time either
+     changed. */
+  --indent: 20px;
+  --chevron-x: 15px;
+  margin-left: var(--indent);
+}
+/* the branch line, dropping from under the parent's chevron and running the
+   length of the open subtree */
+.tree-children::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--chevron-x) - var(--indent));
+  top: 0;
+  bottom: 4px;
+  width: 1px;
+  background: var(--rule-rail);
+}
+
+/*
+ * A gap is always there, a few pixels tall, so picking a row up moves
+ * nothing. Aimed at, it opens into a real slot and pushes the rows below it
+ * down: the list making room exactly where the item will land.
+ */
+.tree-gap {
+  height: 6px;
+  margin-right: 8px;
+  border: 1px dashed transparent;
+  border-radius: var(--r-2);
+  transition: height var(--base) var(--ease), border-color var(--fast) var(--ease),
+    background var(--fast) var(--ease);
+}
+.tree-gap.active {
+  height: 30px;
+  border-color: var(--accent);
+  background: var(--accent-softer);
+}
+
+.tree-row.renaming { padding: 4px 8px; }
+
+.tree-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--ink-3);
+}
+.tree-chevron svg { transform: rotate(-90deg); transition: transform var(--base) var(--ease); }
+.tree-chevron svg.open { transform: rotate(0deg); }
+
+/* the row is the thing you hover, select and drop on, so it runs the full
+   width of the rail — a hit area that stopped where the words did meant the
+   empty half of a short row was dead */
+.tree-node { display: block; }
+.tree-row { width: 100%; }
+.tree-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-menu-btn {
+  display: none;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--ink-3);
+  padding: 2px;
+  margin: -2px;
+}
+.tree-row:hover .tree-menu-btn,
+.tree-row:focus-within .tree-menu-btn { display: flex; }
+.tree-menu-btn:hover { color: var(--accent); }
+@media (pointer: coarse) { .tree-menu-btn { display: flex; } }
+
+/* ==========================================================================
+   已归档 — a record, not a workspace: nothing here is hand-ordered
+   ========================================================================== */
+
+.tree-row.archived { cursor: default; }
+.tree-row.archived:hover { background: transparent; color: var(--ink-2); }
+.tree-row.archived .tree-menu-btn { display: flex; }
+.archive-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: inherit;
+  transition: color var(--fast) var(--ease);
+}
+.archive-open:hover { color: var(--accent); }
+.archive-path { font-size: 10.5px; color: var(--ink-3); }
+
+/* ==========================================================================
+   foot: the ledger
+   ========================================================================== */
+
+.sidebar-foot {
+  position: relative;
+  padding: 15px 22px 18px;
+  font-size: var(--t-caption);
+  color: var(--ink-2);
+}
+/* inset to match every other rule in this rail */
+.sidebar-foot::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 22px;
+  right: 22px;
+  height: 1px;
+  background: var(--rule-rail);
+}
+.quota-line { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+.quota-line span:last-child { color: var(--ink-3); }
+.quota-bar { height: 2px; margin: 6px 0 10px; background: var(--rule-rail); overflow: hidden; }
+.quota-bar-fill { height: 100%; background: var(--accent); transition: width var(--base) var(--ease); }
+.sidebar-user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule-rail);
+  letter-spacing: 0.04em;
+}
+.logout-btn {
+  font-size: var(--t-caption);
+  color: var(--ink-3);
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 0.2em;
+  transition: color var(--fast) var(--ease);
+}
+.logout-btn:hover { color: var(--accent); }
+
+@media (max-width: 860px) {
+  .sidebar-foot::before { left: 16px; right: 16px; }
+  .new-folder-btn { margin-left: 16px; margin-right: 16px; }
+  /* A phone has no strip to spare for two figures read once a week and a
+     button pressed almost never. Both are on the settings page, which is one
+     tap from the top of this rail. */
+  .sidebar-foot { display: none; }
+  .sidebar-settings { margin-top: 8px; }
+}
+
+/* ==========================================================================
+   Settings page
+   --------------------------------------------------------------------------
+   Reuses the right rail's controls, so it borrows their metrics too — a
+   number set here and the same number adjusted there should not look like
+   two different controls.
+   ========================================================================== */
+
+.settings-page {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 40px 28px 64px;
+}
+.settings-inner { max-width: 560px; margin: 0 auto; }
+/* a detour, so the way back is the first thing on the page */
+.settings-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 14px -6px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.settings-back:hover { background: var(--accent-softer); color: var(--accent-deep); }
+.settings-back svg { flex-shrink: 0; }
+.settings-title {
+  margin: 0 0 26px;
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+}
+.settings-section {
+  padding: 16px 18px 18px;
+  margin-bottom: 16px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+.settings-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 22px;
+  margin-bottom: 12px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+/* the heading's own control sits at its right end, on the rule */
+.settings-section-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+.settings-section-title .icon-btn {
+  order: 2;
+  margin: -6px -6px -6px 0;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 30px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.settings-row-label { display: inline-flex; align-items: center; gap: 7px; }
+.settings-row-label svg { color: var(--ink-3); flex-shrink: 0; }
+.settings-row-value { color: var(--ink); }
+.settings-row-value.on { color: var(--brass-deep); }
+/* A road's state reads at a glance; the button beside it is the quiet one,
+   because reporting an outage is rare and undoing it must look equally easy. */
+.road-state {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.road-state.on { color: var(--brass-deep); }
+.road-state.out { color: var(--danger); }
+.road-report {
+  padding: 3px 9px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 12px;
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.road-report:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+.road-report:disabled { opacity: 0.5; }
+
+.settings-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 12px;
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.settings-danger:hover { border-color: var(--danger); color: var(--danger); }
+
+@media (max-width: 860px) {
+  .settings-page { padding: 26px 14px 40px; }
+  .settings-title { margin-bottom: 18px; }
+}

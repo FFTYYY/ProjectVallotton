@@ -1,0 +1,659 @@
+/* ==========================================================================
+   The right rail: the conversation's own settings, what it draws on, and
+   the quick phrases. The frame and the fold control live in layout.css.
+
+   One rule per group — the heading's — and space between groups. An
+   earlier pass had a rule under every heading AND between every section,
+   so four groups produced seven lines and no hierarchy at all.
+   ========================================================================== */
+
+.rightbar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 45;
+  width: var(--rightbar-w);
+  display: flex;
+  flex-direction: column;
+  background: var(--rail);
+  border-left: 1px solid var(--rule-rail);
+  animation: fade-in var(--base) var(--ease);
+}
+.rightbar.closing { animation: fade-out var(--fast) var(--ease) forwards; }
+
+.rightbar-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* the fold control floats over this bar's right end */
+  padding: 20px 48px 12px 22px;
+}
+.rightbar-head .rightbar-title { flex: 1; }
+/* wide, archiving stays down in 当前对话 where the rest of the conversation's
+   own facts are */
+.head-archive { display: none; }
+/* the sheet's own close control — see the note in the component */
+.rightbar-close {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: var(--r-2);
+  color: var(--ink-3);
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.rightbar-close:hover { background: var(--wash); color: var(--accent); }
+.rightbar-title {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--accent-deep);
+}
+.rightbar-scroll { flex: 1; overflow-y: auto; padding: 0 22px 88px; }
+
+.rightbar-section { padding: 4px 0 22px; }
+.rightbar-scroll > .rightbar-section:first-child { padding-top: 14px; }
+/* label, then a rule to the margin, and — only where there is something to
+   do — one action in the same slot */
+.rightbar-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  min-height: 22px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent-deep);
+}
+.rightbar-section-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule-rail);
+}
+.rightbar-section-title .icon-btn { margin: -6px -6px -6px 0; }
+.rightbar-empty { padding: 4px 0 2px; font-size: 12px; line-height: 1.8; color: var(--ink-3); }
+
+/* ==========================================================================
+   a fact: label on the left, value on the right, one line each
+
+   Each of these used to be a paragraph of its own, which made four facts
+   look like four sections.
+   ========================================================================== */
+
+.meta-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 5px 0;
+  font-size: 12.5px;
+}
+.meta-label { flex-shrink: 0; color: var(--ink-3); letter-spacing: 0.04em; }
+.meta-value {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  text-align: right;
+  color: var(--ink);
+}
+.meta-value.muted { color: var(--ink-2); }
+.meta-value .crumbs {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* it navigates away, so it is dressed as an anchor is everywhere else —
+   base.css's `a` colour and underline offset — rather than as the plain
+   value it sits beside */
+.crumb-link {
+  color: var(--accent-strong);
+  text-align: right;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 0.2em;
+  transition: color var(--fast) var(--ease),
+    text-decoration-color var(--fast) var(--ease);
+}
+.crumb-link:hover {
+  color: var(--accent-deep);
+  text-decoration-color: currentColor;
+}
+.crumb-clear {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--ink-3);
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+  transition: color var(--fast) var(--ease);
+}
+.crumb-clear:hover { color: var(--danger); }
+
+/* The title is the one field here you actually come to change, so unlike the
+   other single-line fields it keeps a box — sunk INTO the rail, never lighter
+   than it. */
+.meta-row .info-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  text-align: right;
+  font-size: 13.5px;
+  border: 1px solid var(--rule-rail);
+  border-radius: var(--r-2);
+  background-color: var(--surface-soft);
+  background-image: none;
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+}
+.meta-row .info-input:hover { border-color: var(--ink-3); background-image: none; }
+.meta-row .info-input:focus {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background-image: none;
+}
+
+/* ---- settings ------------------------------------------------------------ */
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+.setting-label { display: flex; flex-direction: column; font-size: 12.5px; }
+
+/* ---- quick phrases ------------------------------------------------------- */
+.phrase-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.phrase-item { display: flex; align-items: center; gap: 4px; }
+/* The row being carried sits above the ones making room for it. Picked up is
+   said the way everything raised is said here — a step deeper into the paper
+   plus a hairline — because the palette has no drop shadows in it. */
+.phrase-item.dragging {
+  position: relative;
+  z-index: 2;
+  background: var(--surface-soft);
+  border-radius: var(--r-1);
+  outline: 1px solid var(--rule-strong);
+}
+/* The handle is quiet until reached for: it is the least used control in a row
+   of controls, and the phrase itself is what the eye should land on. */
+.phrase-grip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 1px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: grab;
+  touch-action: none;   /* or the page scrolls instead of the row moving */
+  opacity: 0.45;
+  transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.phrase-item:hover .phrase-grip { opacity: 1; }
+.phrase-grip:hover { color: var(--ink-2); }
+.phrase-grip:active { cursor: grabbing; }
+/*
+ * A phrase reads as a filed slip: a hairline frame, a hanging "+" in the
+ * margin, and type that inks up on hover. Clearly clickable without being a
+ * button-shaped lozenge.
+ */
+.phrase-apply {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  border: 1px solid var(--rule-rail);
+  border-left: 2px solid var(--tint);
+  border-radius: var(--r-1);
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-size: 12.5px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+}
+.phrase-apply::before { content: "+"; flex-shrink: 0; color: var(--ink-3); line-height: 1; }
+/*
+ * The same slip where there is nothing to drop it into — the settings page has
+ * no composer. It keeps the frame, because it is the same thing in a list of
+ * the same things, and loses the "+" and the hover, because those say "press
+ * me and it goes in your message" and here nothing would.
+ */
+.phrase-apply.as-label {
+  cursor: default;
+  color: var(--ink-2);
+}
+.phrase-apply.as-label::before { content: none; }
+.phrase-apply.as-label:hover {
+  border-color: var(--rule-rail);
+  border-left-color: var(--tint);
+  background: var(--surface-soft);
+  color: var(--ink-2);
+}
+.phrase-apply:hover {
+  border-color: var(--rule-strong);
+  border-left-color: var(--accent);
+  /* deeper on hover, not paler: going toward white on a blue rail is what
+     kept making these look like empty boxes */
+  background: var(--tint-soft);
+  color: var(--accent-deep);
+}
+.phrase-apply:hover::before { color: var(--accent); }
+
+.phrase-action {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-2);
+  color: var(--ink-3);
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.phrase-action:hover { color: var(--accent); background: var(--accent-softer); }
+.phrase-action.danger:hover { color: var(--danger); background: var(--danger-soft); }
+
+.phrase-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 10px 0;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--surface-soft);
+}
+.phrase-editor-actions { display: flex; gap: 8px; }
+
+/* ==========================================================================
+   library selection (right rail)
+   ========================================================================== */
+
+.sel-group-label {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+}
+/* Square corners throughout the picker: these are checkboxes and the rows
+   they belong to, and a rounded one reads as a button you press. */
+/* switched on: a change of ground plus a bar on the leading edge. --wash sat
+   two levels off the rail, so "chosen" was invisible; --tint-soft is the
+   ground the sidebar already uses to say the same thing. */
+.sel-item.on { background: var(--tint-soft); box-shadow: inset 2px 0 0 var(--accent); }
+/* the tooltip wraps the row in a span, which is inline — the row would
+   shrink-wrap its text and stop being a full-width target */
+.sel-label-wrap { display: block; }
+/* The whole row is the target — there is no box to hit. A setting row is the
+   switch itself; a character row only opens, because what you actually choose
+   there is a costume. */
+.sel-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 8px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--ink);
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+/* A touch screen has no hover, but it does have a last-tapped element that
+   keeps :hover until something else is tapped. On a selected row that reads as
+   a second, brighter kind of selected, sitting there long after the tap. */
+@media (hover: hover) {
+  .sel-row:hover { background: var(--accent-softer); color: var(--accent-deep); }
+  .sel-item.on .sel-row:hover { background: var(--tint); }
+  .sel-variant:hover { border-color: var(--accent); color: var(--accent-deep); }
+}
+.sel-item.on .sel-row { color: var(--accent-deep); font-weight: 500; }
+.sel-row svg { flex-shrink: 0; color: var(--ink-3); }
+.sel-item.on .sel-row > svg:first-child { color: var(--accent); }
+/* the chevron points down when open and left when shut: it sits at the right
+   end of the row, so pointing left is pointing at what it would fold away */
+.sel-row > svg:last-child { transform: rotate(90deg); transition: transform var(--base) var(--ease); }
+.sel-row > svg:last-child.open { transform: rotate(0deg); }
+.sel-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* a conversation-layer entry says so beside its name */
+.sel-layer {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  letter-spacing: .04em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: var(--own-deep);
+  background: var(--own-soft);
+}
+/* the text was edited and the lines are still being rewritten from it */
+.sel-stale { flex-shrink: 0; display: inline-flex; }
+.sel-row .sel-stale svg { color: var(--accent); animation: spin 2.4s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .sel-row .sel-stale svg { animation: none; } }
+/* the row and, on a conversation-layer entry, its controls at the end of it */
+.sel-head { display: flex; align-items: center; }
+.sel-head > .sel-label-wrap { flex: 1; min-width: 0; }
+.sel-own-actions { display: flex; flex-shrink: 0; padding-right: 2px; }
+.sel-own-actions .icon-btn { width: 24px; height: 24px; }
+@media (hover: hover) {
+  .sel-own-actions .icon-btn.danger:hover { color: var(--danger); background: var(--danger-soft); }
+}
+.sel-own-edit { display: grid; gap: 6px; padding: 4px 8px 6px; }
+.sel-own-edit > .sel-own-actions { justify-content: flex-end; padding: 0; }
+.sel-own-edit textarea { resize: vertical; }
+.sel-sub {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sel-variants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 2px 8px 8px 28px;
+}
+.sel-variant {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--rule-rail);
+  background: var(--surface-soft);
+  font-size: 12px;
+  color: var(--ink-2);
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+/* a chip already rests on --surface-soft, so "on" has to go deeper still —
+   --wash made the chosen one LIGHTER than the ones beside it */
+.sel-variant.on { border-color: var(--accent); color: var(--accent-deep); background: var(--tint); }
+
+/* ==========================================================================
+   library proposals
+   ========================================================================== */
+
+.rightbar-section.highlight { position: relative; }
+/* the one warm hairline again: the app speaking on the model's behalf */
+.rightbar-section.highlight::before {
+  content: "";
+  position: absolute;
+  left: -22px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--brass);
+}
+
+.proposal-card {
+  margin-top: 8px;
+  padding: 10px 11px;
+  background: var(--surface-soft);
+  border: 1px solid var(--rule-rail);
+  border-radius: var(--r-2);
+  animation: card-in var(--base) var(--ease);
+}
+.proposal-entry + .proposal-entry { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule); }
+.proposal-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.proposal-entry-head svg { color: var(--accent); }
+.proposal-entry-body {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+}
+.proposal-variant {
+  margin-top: 5px;
+  padding-left: 9px;
+  border-left: 1px solid var(--rule);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+.proposal-variant b { display: block; font-weight: 500; color: var(--ink); }
+.proposal-actions { display: flex; gap: 8px; margin-top: 10px; }
+.proposal-actions .info-action-btn { flex: 1; justify-content: center; }
+
+/* ==========================================================================
+   the rail on a phone
+
+   It grows out of the composer, so it lines up with the composer rather than
+   with the screen: the same inset, and a rule and a radius on the three edges
+   that are not touching it.
+   ========================================================================== */
+
+@media (max-width: 860px) {
+  .rightbar {
+    /* Over the transcript, not in the column with it. In flow the sheet took
+       its height out of the conversation and shoved the last few messages up
+       the screen; opening a settings panel is not a reason to lose the thing
+       you were reading.
+       Its bottom edge is the composer's top edge — published as --composer-h
+       by Composer.tsx — so the sheet still ends exactly where the composer
+       begins, which is what puts the floating control in its bottom padding
+       and keeps the composer usable with the sheet open. */
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: var(--composer-h, 96px);
+    /* under the left drawer's scrim (35), above the transcript */
+    z-index: 34;
+    width: auto;
+    max-height: 52dvh;
+    min-height: 0;
+    /* closed on all four sides: it floats on the page rather than growing
+       out of an edge of it */
+    margin: 0;
+    /* still a hairline; it just has to do the work a column edge does on a
+       wide screen, where the sheet has a whole side of the window to sit
+       against instead of floating on the page it covers */
+    border: 1px solid var(--sheet-edge);
+    border-radius: var(--r-2);
+    /* The sheet sits ON the transcript rather than beside it. One step down
+       from the plate is enough when a column edge does the separating, and
+       not nearly enough when nothing does — it read as the same page. */
+    background: var(--sheet);
+
+    /* The ladder, re-hung from this ground.
+       ----------------------------------------------------------------------
+       Everything in here — dividers, field underlines, button borders, the
+       quick-phrase rows — is painted from tokens measured against the plate.
+       Move the ground without moving them and they keep their old absolute
+       values, which against a deeper ground is the same as fading out: what
+       makes elevation legible is the gap, not the value (see tokens.css).
+
+       So the tokens are redeclared here rather than the elements restyled. One
+       place, and anything added to this sheet later is carried by it without
+       being told. */
+    --surface: #c7d2eb;
+    --surface-soft: #bbc8e2;
+    --surface-soft-hover: #b3c0db;
+    --surface-2: #cad4ea;
+    --rule: #bcc8e2;
+    --rule-rail: #b1bfdf;
+    --rule-strong: #a4b2d3;
+    --wash: #ccd5ea;
+    --accent-softer: #cad5ed;
+    box-shadow: 0 -10px 26px -20px rgba(31, 38, 51, 0.4);
+    animation: sheet-up var(--base) var(--ease);
+  }
+  .rightbar.closing { animation: sheet-down var(--fast) var(--ease) forwards; }
+  .rightbar-head { padding: 18px 34px 10px; }
+  .rightbar-close { display: flex; }
+  /* The sheet's height is the scarce thing on a phone, and a row holding one
+     button was spending it. Up here the title no longer takes the whole row,
+     the button follows it, and the space between pushes the close control to
+     the far corner — a thumb cannot reach both. */
+  .rightbar-head .rightbar-title { flex: 0 0 auto; }
+  .head-archive {
+    display: inline-flex;
+    flex-shrink: 0;
+    margin-right: auto;
+    padding: 5px 10px;
+    font-size: 11.5px;
+  }
+  .conv-archive-row { display: none; }
+  /* the side padding gives the sheet room to breathe; the bottom one is sized
+     so the floating control lands in padding and never over content */
+  .rightbar-scroll { padding: 0 34px 56px; }
+  .rightbar-section { padding: 4px 0 20px; }
+  /* reaches back out through the scroller's padding so the flash covers the
+     full width of the sheet, not just the text column */
+  .rightbar-section.highlight::before { left: -34px; }
+}
+
+/* ---- reflection -----------------------------------------------------------
+   A slider, because off / once / five times is one decision at different
+   strengths — and 0 sitting at the left end says what "off" costs in the same
+   gesture a switch would hide. */
+.slider-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  max-width: 156px;
+}
+/* a fixed column so the track does not jump a pixel as the number changes */
+.setting-value {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+}
+.setting-value.on { color: var(--brass); }
+
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  height: 18px;
+  background: none;
+  cursor: pointer;
+}
+
+/* On a touch screen the native control never sees the gesture: Chrome drives
+   its thumb straight from the touch events, so cancelling pointerdown is not
+   enough to stop a tap from landing. The wrapper handles it instead — see
+   lib/dragSlider — and only a finger that travels moves anything. pan-y keeps
+   the sidebar scrollable through the slider while the horizontal axis is ours. */
+@media (pointer: coarse) {
+  .slider { pointer-events: none; }
+  .slider-group { touch-action: pan-y; }
+}
+.slider::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--rule-rail);
+}
+.slider::-moz-range-track { height: 2px; background: var(--rule-rail); }
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--brass);
+  border: none;
+}
+.slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--brass);
+  border: none;
+}
+.slider:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
+
+/* ---- continuous mode -------------------------------------------------------
+   The slider is unavailable with no quick phrases, because the whole feature
+   is "send that phrase again" and there is no phrase to send. */
+.setting-row.unavailable { opacity: 0.45; }
+.setting-row.unavailable .slider { cursor: not-allowed; }
+
+/*
+ * Which phrase gets sent again. A radio, drawn rather than borrowed: the
+ * native control brings its own blue, its own ring and its own sizing, none of
+ * which belong to anything else on this page.
+ */
+.phrase-radio {
+  flex-shrink: 0;
+  /* it sits after 编辑 and 删除 but is not one of them — those act on the
+     phrase, this one says which phrase acts on the conversation */
+  margin-left: 2px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background var(--fast) var(--ease);
+}
+.phrase-radio span {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1px solid var(--rule-strong, var(--rule-rail));
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+}
+.phrase-radio:hover span { border-color: var(--brass); }
+.phrase-radio.on span {
+  border-color: var(--brass);
+  /* the dot is an inset shadow, so the ring stays exactly one hairline wide */
+  box-shadow: inset 0 0 0 3px var(--brass);
+}
+.phrase-radio:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+/*
+ * A switch. Drawn rather than borrowed, for the same reason the radio is: the
+ * native checkbox brings its own blue and its own box, and neither belongs to
+ * anything else here.
+ */
+.toggle {
+  flex-shrink: 0;
+  width: 34px;
+  height: 18px;
+  border-radius: 9px;
+  border: 1px solid var(--rule-strong);
+  background: var(--surface-soft);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 2px;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.toggle span {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  transition: transform var(--base) var(--ease), background var(--fast) var(--ease);
+}
+.toggle.on { border-color: var(--brass); background: color-mix(in srgb, var(--brass) 18%, transparent); }
+.toggle.on span { transform: translateX(16px); background: var(--brass); }
+.toggle:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }

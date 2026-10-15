@@ -1,0 +1,59 @@
+/* ==========================================================================
+   Motion — the keyframes every module shares, and the one reusable
+   open/close mechanism.
+
+   Nothing here moves for decoration. Every rule answers one of two questions:
+   "where did that come from?" or "where did that go?" Per-component uses of
+   these keyframes live with those components; only the shared vocabulary is
+   defined here.
+   ========================================================================== */
+
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes row-in { from { opacity: 0; } }
+@keyframes card-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes menu-in { from { opacity: 0; transform: translateY(-4px) scale(0.97); } }
+@keyframes tab-in { from { opacity: 0; transform: translateY(4px); } }
+@keyframes sheet-up { from { opacity: 0; transform: translateY(18px); } }
+@keyframes sheet-down { to { opacity: 0; transform: translateY(18px); } }
+@keyframes modal-rise { from { opacity: 0; transform: translateY(10px); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ==========================================================================
+   Collapse — one mechanism for everything that folds open
+
+   grid 0fr → 1fr resolves to the content's real height, so this works for any
+   content without measuring it and without a max-height guess that either
+   clips or leaves a pause at the end. Paired with <Collapse/>.
+   ========================================================================== */
+
+.collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--base) var(--ease);
+}
+.collapse.open { grid-template-rows: 1fr; }
+.collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity var(--fast) var(--ease);
+}
+.collapse.open > .collapse-inner {
+  opacity: 1;
+  transition: opacity var(--base) var(--ease) 60ms;
+}
+
+.fade-in { animation: fade-in var(--base) var(--ease); }
+.selection-chip { animation: row-in var(--base) var(--ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-row,
+  .lib-card,
+  .proposal-card,
+  .selection-chip,
+  .tab-panel,
+  .conv-menu,
+  .tree-menu,
+  .modal { animation: none; }
+}

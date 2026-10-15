@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vallotton</title>
+<meta name="description" content="Vallotton：AI绘图工作室。用自然语言和瓦洛东对话，由NovelAI V5出图；资料库记住人物与画风，一张张改下去。">
+<link rel="icon" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@500;600&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="top"><div class="top-inner">
+  <a class="brand" href="index.html"><img src="assets/logo.png" alt=""><span class="word">Vallotton</span><span class="sub">文档</span></a>
+  <nav class="menu">
+    <a class="active" href="index.html">前言</a>
+    <a href="quickstart.html">快速上手</a>
+    <a href="guide.html">进阶指南</a>
+    <a href="deploy.html">部署教程</a>
+  </nav>
+</div></header>
+
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-text">
+      <div class="hero-title">
+        <img class="hero-logo" src="assets/logo.png" alt="">
+        <div class="hero-words">
+          <h1>Vallotton</h1>
+          <div class="tag">你的AI绘图工作室</div>
+        </div>
+      </div>
+      <p>Vallotton本质上是一个AI绘图工作流，目标是用一种自然语言的交互方式来调用标签式的绘图模型（NovelAI V5），同时解决一些这类模型存在的问题，例如画风的一致性、原创人物的可复用性等，以及加入自主规划、连续生成、自主反思等能力。</p>
+      <div class="hero-actions">
+        <a class="btn" href="quickstart.html">快速上手</a>
+        <a class="btn ghost" href="guide.html">进阶指南</a>
+        <a class="btn ghost" href="deploy.html">部署教程</a>
+        <a class="btn ghost" href="https://github.com/FFTYYY/ProjectVallotton"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+      </div>
+    </div>
+    <div class="hero-art"><img src="assets/hero.jpg" alt="画师瓦洛东在深夜的画室里作画"></div>
+  </div>
+</section>
+
+<main class="page single">
+<article style="max-width: none;">
+
+
+
+
+<h2>Vallotton是什么</h2>
+<p>Vallotton是一个绘图工作室。其形态类似于ChatGPT，每个任务以对话的形式组织。Vallotton可以按照你的要求画画、修改本对话内已有的图、讨论已有的图等等，也可以纯聊天。（<del>月初：GPT Astra，给我背九九乘法表。月末：我看Vallotton的编程能力也不错啊</del>）</p>
+<p>本质上，Vallotton是一个结合了大语言模型（我们目前默认用Deepseek V4 flash）与NovelAI V5的工作流。Vallotton的核心流程很简单，就是用语言模型将用户的自然语言需求翻译成NovelAI能理解的Danbooru风格的提示词，再由NovelAI生成图像。然而，如果只是暴力地这样做，会遇到很多问题，比如同一个人物在不同的图里长得不一样、衣服的细节会变化、画风会不一致，以及无法做局部修改等等。Vallotton引入了一套复杂的流程来尽可能规避这些问题。</p>
+<p>理解Vallotton的这个核心流程至关重要，因为Vallotton能做的事情本质上受到其内部的语言模型和NovelAI的能力限制。例如，其非常擅长绘制热门动漫IP的人物，以及支持特定画师风格tag<sup class="fn"><a href="#fn1" id="fnref1">1</a></sup>，因为NovelAI针对这些场景进行过专门训练。NovelAI还有专门的风景画和福瑞（？）数据库，Vallotton在这些类型上的创作也很出色。然而，其无法像ChatGPT（背后是gpt-image-2.5）那样创建有真实感图像。</p>
+
+
+<h2>在开始之前，你需要了解并准备什么</h2>
+<div class="facts">
+  <div><b>NovelAI</b><span>你需要一个NovelAI的订阅账号和它的persistent token。Vallotton的出图会使用订阅的用量。</span></div>
+  <div><b>大语言模型</b><span>你需要一个DeepSeek的API key（也支持Grok，见<a href="deploy.html#env">部署教程</a>）。</span></div>
+  <div><b>本机运行</b><span>要在自己的电脑上运行Vallotton，你需要一台可以联网的Windows、macOS或者Linux的电脑。Python等运行环境（如果本地没有）会由启动脚本自动联网下载。</span></div>
+  <div><b>服务器部署</b><span>要在服务器上部署Vallotton，你需要一台公网可访问的Linux机器以及一个域名。</span></div>
+</div>
+
+<p>接下来，根据你的需要，选择相应的指南开始阅读吧。</p>
+
+<div class="cards">
+  <a class="card" href="quickstart.html">
+    <div class="n">I</div>
+    <h3>快速上手</h3>
+    <p>在自己的电脑上快速启动Vallotton并且画出你的第一幅画。</p>
+  </a>
+  <a class="card" href="guide.html">
+    <div class="n">II</div>
+    <h3>进阶指南</h3>
+    <p>Vallotton的详细使用教程，以及相关术语：改图、两层资料库、造型与tag行、反思与连续生成、检查器等等。</p>
+  </a>
+  <a class="card" href="deploy.html">
+    <div class="n">III</div>
+    <h3>部署教程</h3>
+    <p>进阶的部署教程，目标是将Vallotton部署到一台服务器上以便远程访问，并且进行高级环境变量配置。</p>
+  </a>
+</div>
+
+<div class="footnotes">
+<p id="fn1"><sup>1</sup>画特定IP的人物、模仿在世画师的个人画风，在很多地方都是有争议的：法律上可能涉及知识产权问题，道德上也有不少画师明确反对AI模仿自己的风格。Vallotton只是把NovelAI的这部分能力原样暴露出来，我们没有加任何过滤，也不替用户做判断。生成的图用在哪里、是否公开、是否商用、是否标注画师的名字，请自行评估相应的合规性和道德准则，并遵守NovelAI的服务条款。 <a href="#fnref1" title="回到正文">↩</a></p>
+<p id="fn-license"><sup>*</sup> Vallotton以Apache-2.0许可证发布。它调用的NovelAI、DeepSeek、xAI是各自公司的服务，账号、费用与生成内容由使用者自行负责。</p>
+</div>
+
+</article>
+</main>
+<footer class="foot">
+  <span>Vallotton · AI绘图工作室</span>
+  <a href="quickstart.html">快速上手</a>
+  <a href="guide.html">进阶指南</a>
+  <a href="deploy.html">部署教程</a>
+</footer>
+</body>
+</html>

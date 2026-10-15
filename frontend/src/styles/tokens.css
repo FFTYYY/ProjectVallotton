@@ -1,0 +1,137 @@
+/* ==========================================================================
+   Vallotton — visual system
+
+   The idea:  a printed plate, not an app chrome. Ice-cool paper, one cobalt
+              accent, and hairlines instead of boxes. The brand shape — the
+              ARCH — is spent only where the app introduces itself (welcome
+              plate, login card). A single hair of brass marks the app's own
+              voice in the transcript: the one warm note in a cool palette.
+
+   Rules:     no gradients, no frosted glass, no pill buttons, no drop shadow
+              except one soft lift for true overlays. Radii are 2/4px; 999px
+              is reserved for the arch. Motion is colour and opacity only.
+   ========================================================================== */
+
+:root {
+  /* ---- the one theme colour: cobalt-periwinkle, mixed like paint -------- */
+  --theme:         #4166b8;
+  --accent:        var(--theme);
+  --accent-strong: #33529a;   /* hover / pressed */
+  --accent-deep:   #2a4380;   /* display type on paper */
+  --tint:          #aab8dc;   /* the arch ground; ink reads on it */
+  --tint-soft:     #cdd6ec;
+  --wash:          #dee4f1;   /* user's words, selected row, hover ground */
+  /* legacy aliases used across components */
+  --accent-soft:   var(--wash);
+  /* the lightest tint in the app, and it is still a tint — anywhere near 97%
+     white this reads as plain white on a rail, which is the one thing this
+     palette must never do */
+  --accent-softer: #dce4f4;
+  --user-bubble:   var(--wash);
+
+  /* ---- paper & ink ------------------------------------------------------
+     Three planes, lightest in the middle: the conversation is the lit plate,
+     the rails recede behind it, and anything the user types into sits above
+     the plate in near-white.                                              */
+  /* Five grounds, and NONE of them is white. Elevation is shown by going a
+     step deeper into the theme colour plus a hairline — not by bleaching
+     toward var(--on-accent), which is what kept making this look like a default form. */
+  /* The plate carries most of the app's area, so it sets how light the whole
+     thing feels. Kept a clear step below white — a 97% plate read as a blank
+     browser page, especially on the library workspace where the cards are
+     nearly flush with it. Everything below moves with it: the ladder's gaps
+     are what make elevation legible, not the absolute values. */
+  --paper:        #e6ebf5;    /* the centre plate: the transcript */
+  --bg:           var(--paper);
+  --rail:         #dfe6f3;    /* left & right rails — a step DARKER */
+  --surface:      #d9e1f2;    /* composer, menus, cards raised off the plate */
+  /* the phone's right-hand sheet, which lies ON the transcript rather than
+     beside it. A rail that is one step down reads as a rail when there is a
+     column edge to separate it, and reads as the same page when there is not
+     — so the sheet goes two steps further than the rail it is on desktop. */
+  --sheet:        #ccd7ec;
+  --sheet-edge:   #98a8cb;   /* its one hairline, which has to hold on its own */
+  /* a field sunk into a surface that is ALREADY deeper than the plate —
+     a rail, or a raised card. --field is measured against the plate, so
+     reusing it here left only four or five levels of difference and the
+     field disappeared into whatever it sat on. */
+  --surface-soft:       #cdd7e9;
+  --surface-soft-hover: #c5cfe2;
+  /* a box you type into on one of those cards: a step deeper again, since
+     at --surface-soft it was the same ground as the card it sat on */
+  --field-soft:         #c0cce3;
+  --field-soft-hover:   #b8c5dd;
+  /* Selected text. Tied to the accent, never to a tint: every ground in this
+     palette is a light blue-grey, so a tinted selection is bound to vanish on
+     one of them sooner or later, as it did on each darker field. The accent
+     is darker than any ground and carries its own ink, so this holds for any
+     surface added later -- unless that surface is darker than the accent,
+     which is when to revisit these two. */
+  --selection-bg:       var(--accent);
+  --selection-ink:      var(--on-accent);
+  --surface-2:    #dce3f1;    /* code ground, meters */
+  --on-accent:    #f4f7fe;    /* type ON the accent — still not pure white */
+  /* Contrast against --paper, which is what almost all of it sits on. The
+     ladder used to run 12.7 / 4.9 / 2.5 — the primary was fine and the
+     quiet end was unreadable, so the whole page felt hazy rather than any
+     one thing looking wrong. Now 14.3 / 7.0 / 4.5, and the steps between
+     them are still wide enough to rank a line at a glance. */
+  --ink:          #161c29;    /* 14.3:1 — body, headings */
+  --ink-2:        #454e60;    /* 7.0:1  — ink-soft: secondary type */
+  --ink-3:        #626b7f;    /* 4.5:1  — captions, placeholders, icons */
+
+  /* ---- hairlines -------------------------------------------------------- */
+  --rule:        #ced7e9;
+  --rule-strong: #b6c1da;
+  --rule-rail:   #c3cee6;   /* hairlines ON a rail, which is darker paper */
+  --brass:       #b08d57;     /* the one warm note: the system-note rule */
+  --brass-deep:  #74644c;     /* the same note, for brass that is text */
+  /* the conversation's own library layer: a blue-green, so an entry from it
+     reads apart from the project's cobalt-and-ink at a glance */
+  --own:         #2f7f87;     /* its icons and frames */
+  --own-deep:    #1d5c63;     /* its text on paper: 6.3:1 */
+  --own-soft:    #cfe3e4;     /* the ground of its label */
+  --border:        var(--rule);
+  --border-strong: var(--rule-strong);
+
+  /* ---- semantic: same lightness as the theme, hue rotated --------------- */
+  --danger:      #b0574a;
+  --danger-soft: #f3e6e3;
+  --ok:          #4a8a63;
+
+  /* ---- shape ------------------------------------------------------------ */
+  --r-1: 2px;
+  --r-2: 4px;
+  --arch: 999px 999px 3px 3px;   /* the brand shape */
+  --lift: 0 14px 34px -18px rgba(31, 38, 51, 0.34);
+  --radius: var(--r-2);
+  --radius-sm: var(--r-1);
+  --shadow-1: none;
+  --shadow-2: var(--lift);
+
+  /* ---- type ------------------------------------------------------------- */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-display: "Cormorant Garamond", "Noto Serif SC", "Songti SC", "STSong",
+    Georgia, serif;
+  --font-serif: "Source Serif 4", "Noto Serif SC", "Songti SC", "STSong", Georgia,
+    serif;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", "SF Mono", Consolas, monospace;
+
+  --t-caption: 12px;
+  --t-ui:      14px;
+  --t-body:    15px;
+
+  /* ---- motion ----------------------------------------------------------- */
+  --fast: 150ms;
+  --base: 240ms;
+  --slow: 800ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  --sidebar-w:  282px;
+  --rightbar-w: 318px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --fast: 0ms; --base: 0ms; --slow: 0ms; }
+}

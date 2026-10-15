@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>快速上手 · Vallotton</title>
+<meta name="description" content="在自己的电脑上把 Vallotton 跑起来，并画出第一幅画。">
+<link rel="icon" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@500;600&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/toc.js" defer></script>
+</head>
+<body>
+<header class="top"><div class="top-inner">
+  <a class="brand" href="index.html"><img src="assets/logo.png" alt=""><span class="word">Vallotton</span><span class="sub">文档</span></a>
+  <nav class="menu">
+    <a href="index.html">前言</a>
+    <a class="active" href="quickstart.html">快速上手</a>
+    <a href="guide.html">进阶指南</a>
+    <a href="deploy.html">部署教程</a>
+  </nav>
+</div></header>
+
+<main class="page">
+<aside class="toc"><div class="toc-fixed">
+  <div class="toc-site">
+    <div class="toc-title">文档</div>
+    <a class="page-link" href="index.html">前言</a>
+    <a class="page-link current" href="quickstart.html">快速上手</a>
+    <a class="page-link" href="guide.html">进阶指南</a>
+    <a class="page-link" href="deploy.html">部署教程</a>
+  </div>
+  <div class="toc-title">本页</div>
+  <div class="toc-page">
+    <a href="#prep">你需要准备的东西</a>
+    <a class="l2" href="#accounts">两个账号</a>
+    <a class="l2" href="#software">要不要装软件</a>
+    <a href="#start">下载并启动</a>
+    <a class="l2" href="#first-run">第一次运行的四个问题</a>
+    <a class="l2" href="#dashboard">怎么知道启动成功了</a>
+    <a href="#login">登录</a>
+    <a href="#first-picture">画第一幅画</a>
+    <a href="#edit">改一改</a>
+    <a href="#remember">Vallotton会记住人物</a>
+    <a href="#stop">结束，和下次再用</a>
+    <a href="#trouble">出了问题怎么办</a>
+    <a href="#next">接下来</a>
+  </div>
+</div></aside>
+
+<article>
+<h1>快速上手</h1>
+<p class="lede">这一章是一个手把手教程，目标是让第一次使用的用户在自己的电脑上把Vallotton快速跑起来，并且画出第一幅画。这个过程会使用我们提供的一个便携式启动脚本，你基本上不需要额外配置任何环境。</p>
+
+<h2 id="prep">你需要准备的东西</h2>
+
+<h3 id="accounts">准备两个账号</h3>
+<p>正如<a href="index.html">前言</a>中反复提到的，Vallotton本质上是一个把deepseek（或者其他LLM服务） 和NovelAI V5接起来的工作流。这两家都是收费的在线服务，你需要各有一个账号，并且从账号里拿到对应的密钥交给Vallotton。</p>
+<div class="wrap"><table style="--first-col: 6em">
+<tr><th>平台</th><th>用来做什么</th><th>怎么拿到密钥</th></tr>
+<tr><td>NovelAI</td><td>画图。需要订阅，按月付费。</td><td>登录<a href="https://novelai.net/">novelai.net</a>，打开账号设置（User Settings），进入「Account」一栏，找到「Get Persistent API Token」按钮。点击它会显示一串以<code>pst-</code>开头的字符串，这就是NovelAI的密钥。<b>这个弹窗关掉以后就再也看不到这串字符了</b>，请先把它复制到一个安全的地方存好。</td></tr>
+<tr><td>DeepSeek</td><td>理解你的话，规划画什么、怎么改。</td><td>打开<a href="https://platform.deepseek.com/">platform.deepseek.com</a>注册账号，先在「充值」里充一点钱（几块钱就能用很久），然后在「API keys」页面新建一个key，会得到一串以<code>sk-</code>开头的字符串。它同样只显示一次，请先复制存好。</td></tr>
+</table></div>
+<div class="note"><p><b>大致成本：</b>NovelAI是固定的月费，订阅期间用默认画质画图不另外收费。DeepSeek按用量计费，每画一张图大约几分钱。之后在Vallotton的设置页里可以看到两边还剩多少额度。</p></div>
+
+<h3 id="software">要不要装软件？</h3>
+<p>Vallotton的后端是用Python写的，这个快速启动脚本中会自动下载并准备好需要的Python环境。但如果脚本的自动安装失败，可能需要你手动安装Python。</p>
+
+<p>（如果你的电脑上已经有Python，也不用担心这些脚本会污染环境。Vallotton自动装的Python只会在本项目中使用，不进入系统环境。）</p>
+
+
+<h2 id="start">下载并启动</h2>
+<p>先从<a href="https://github.com/FFTYYY/ProjectVallotton">GitHub</a>下载代码。然后，</p>
+<ul>
+  <li><b>Windows</b>：打开Vallotton文件夹，双击或在命令行中运行<code>start.bat</code>。</li>
+  <li><b>macOS / Linux</b>：打开终端，进入Vallotton文件夹，运行<code>./start.sh</code>（第一次如果提示没有权限，先执行<code>chmod +x start.sh</code>）。</li>
+</ul>
+<p>启动脚本会按顺序做下面几件事：</p>
+<ol>
+  <li>第一次运行时会自动准备Python：如果电脑上已经有Python（3.12以上），那么就直接用它；没有的话会自动下载一份。两种情况都只放在Vallotton文件夹下的<code>.runtime</code>目录里。一般不到一分钟。</li>
+  <li>检查需要的组件是否完整。</li>
+  <li>如果环境变量还未创建，则会交互式创建环境变量。</li>
+  <li>准备环境变量，启动程序，然后自动打开浏览器。</li>
+</ol>
+
+<h3 id="first-run">准备环境变量</h3>
+<p>第一次运行时，脚本需要创建环境变量。具体来说，需要你回答以下四个问题：</p>
+<div class="wrap"><table>
+<tr><th>问题</th><th>填什么</th></tr>
+<tr><td>DeepSeek API key</td><td>上面从DeepSeek拿到的、以<code>sk-</code>开头的那串字符。</td></tr>
+<tr><td>NovelAI persistent token</td><td>上面从NovelAI拿到的、以<code>pst-</code>开头的那串字符。</td></tr>
+<tr><td>网页登录用户名</td><td>以后登录Vallotton网页用的名字。直接按回车就用默认的「user」。</td></tr>
+<tr><td>网页登录密码</td><td>以后登录网页用的密码，自己定一个，输完按回车即可。</td></tr>
+</table></div>
+<p>回答完以后，脚本把这些内容保存到Vallotton文件夹的<code>.env</code>文件里，以后就不再问了。将来如果换了密钥或者想改密码，用记事本打开这个文件改掉对应的那一行，再重新启动就行。</p>
+
+<h3 id="dashboard">后台面板</h3>
+<p>一切顺利的话，浏览器会自动打开一个登录页面（如果没有自动打开，你可以手动打开<code>http://localhost:8000</code>），同时命令行窗口会变成一块显示运行状态的后台面板，大致像这样：</p>
+<figure><img class="shot" src="assets/shots/dashboard.png" alt="启动成功后的后台面板：上面是 VALLOTTON 字样和网页地址，下面是服务、账号、活动、最近的问题几栏。网页地址、服务和账号三处用橙色框标了出来" loading="lazy"><figcaption>启动成功后的后台面板。</figcaption></figure>
+<p>如何看懂这个面板：</p>
+<ul>
+  <li>「服务」下面两行都是绿色的，则说明程序正常跑着。</li>
+  <li>「账号」下面，NovelAI那行写着「有效」、余额那行能显示出数字，说明两个密钥都填对了。如果哪一行是红色的，就是那个密钥有问题，见<a href="#trouble">出了问题怎么办</a>。</li>
+  <li>「打开」后面的网址就是Vallotton的网页地址。如果浏览器没有自动打开，可以把它复制到浏览器地址栏里打开。在面板里按<kbd>o</kbd>键也可以自动打开。</li>
+</ul>
+<p>这个命令行窗口在Vallotton运行期间要一直开着。</p>
+
+<h2 id="login">登录</h2>
+<p>在浏览器打开的页面里，输入你设置的用户名和密码，点登录即可进入。目前，Vallotton是单用户的，只接受环境变量中创建的那个账号，因此你无需（也无法）与其他人共享一个服务。</p>
+<figure><img class="shot" src="assets/shots/login.png" alt="Vallotton 的登录页，一个用户名框和一个密码框" loading="lazy"><figcaption>登录页。用户名和密码是<a href="#first-run">准备环境变量</a>那一步中你自己填的。</figcaption></figure>
+
+<h2 id="first-picture">画第一幅画</h2>
+<figure><img class="shot" src="assets/shots/empty.png" alt="登录后的欢迎页：中间是瓦洛东的头像和几句示例，底部是输入框，右侧是生成设置" loading="lazy"><figcaption>登录后的欢迎页。中间那几句是现成的例子。底部是输入框。</figcaption></figure>
+<p>登录后看到的是一个空白的欢迎页，上面写着「新的开始。想画点什么？」，下面有几句现成的例子。你可以点其中一句，也可以在页面底部的输入框里自己写一句，比如：</p>
+<pre><code>画一个在雨夜屋顶上撑伞的白发少女</code></pre>
+<p>按回车键即可发送。</p>
+
+<p>接下来需要等一段时间。页面上会显示Vallotton实际上在做什么。「正在构思」是大语言模型在规划画面，「在斟酌」是在把画面翻译成NovelAI能理解的提示词，「正在落笔」是NovelAI在出图。第一张图通常要一到三分钟，大部分时间花在模型思考上。（喜欢我蓝色大肥鱼的雷霆大思考吗）</p>
+<figure><img class="shot" src="assets/shots/working.png" alt="正在工作时的对话页面，显示「瓦洛东小姐正在构思…」" loading="lazy"><figcaption>发送之后，这一行字会随着进度变化。</figcaption></figure>
+<p>画好以后，生成的图会出现在回复里。有几个地方值得注意：</p>
+<ul>
+  <li>图的上面有一行小字，以<b>#</b>开头，是这次绘图的编号。你可以用这个编号来引用这张图，例如「改一下#114514这幅画的画风」。</li>
+  <li>图下面的「<b>用到的资料</b>」列出这张图用到了资料库里的哪些内容。「资料库」会在<a href="#remember">后面</a>介绍。</li>
+  <li>图片下面有几个按钮。点击「重绘」可以使用相同的NovelAI提示词重新画一幅图；「重跑」则重跑整个过程；「分支」可以从当前消息开始创建一条新的对话；「检查」可以查看这一轮的全部细节。</li>
+</ul>
+<figure><img class="shot" src="assets/shots/picture-parts.jpg" alt="画好的第一张图：雨夜屋顶上撑着透明伞的白发少女。绘图编号、反思结果、用到的资料、提示词、时间和五个按钮各用橙色框标了出来" loading="lazy"><figcaption>第一张画好的样子。图的上方是这次绘图的编号；图的下方依次是：Vallotton自己反思的结果、用到的资料、发给NovelAI的提示词（默认折叠）、时间，以及重绘、复制、分支、重跑、检查五个按钮。</figcaption></figure>
+
+<h2 id="edit">改一改</h2>
+<p>画完第一张之后，可以直接在输入框中继续输入消息。你的消息可以是画一张新的图，也可以是修改现有图。例如：</p>
+<pre><code>把伞换成红色的，人再靠近镜头一点</code></pre>
+<p>Vallotton会在上一张的基础上改，并且尽可能只改你说到的部分。</p>
+<figure><img class="shot" src="assets/shots/edit.jpg" alt="改过的图：伞变成了红色，人物更靠近镜头，其余的屋顶夜景不变" loading="lazy"><figcaption>改过之后：伞换成了红色，人更靠近镜头，屋顶、雨夜和光线都没有变。图上方写着「改自」上一张的编号。</figcaption></figure>
+
+<h2 id="remember">Vallotton会记住设定</h2>
+<p>画里出现一个人物时，Vallotton会主动把这个人物记进本次对话的资料库：长相是什么样、头发什么颜色、穿的每一件衣服，都分别记成一行。之后在这次对话里再画这个人物，就都会按记下来的内容画。这样做是为了尽可能保证同一个对话中人物的一致性。</p>
+<p>除了人物以外，这次对话用的画风、反复出现的场景、其他一直成立的设定（比如「一直在下雨」），Vallotton也会自动写进资料库，所以一组图的画风不会一张一个样。</p>
+<p>记下来的人物会以标签的形式显示在输入框的上方。鼠标放上去（手机上是点一下）就能看到记了什么。</p>
+<figure><img class="shot" src="assets/shots/chips-hover.png" alt="输入框上方的三个标签，鼠标停在「白发少女」上，弹出的说明里是她的描述和「米色风衣」这套衣服" loading="lazy"><figcaption>输入框上方的标签。Vallotton记下了人物「白发少女」和她的一套衣服，还有一条画风。</figcaption></figure>
+<p>如果一个对话中创建了一个资料库条目（例如，一个人物），而你想在别的对话里也用这个人物，需要在右边栏中把对应的条目「存到项目」里。这部分在进阶指南的<a href="guide.html#library">资料库</a>一节里有详细说明。在这个快速上手教学中我们先不管这个。</p>
+
+<h2 id="stop">重新启动服务</h2>
+总有一天，你不想再继续画图了。你可以关掉本机的Vallotton服务。所有的环境变量和数据都会被保留，下次重新启动服务即可继续使用。
+<ul>
+  <li><b>停止服务</b>：回到那个命令行的后台窗口，按<kbd>q</kbd>键（或者<kbd>Ctrl+C</kbd>也可）即可停止进程。</li>
+  <li><b>重新启动服务</b>：和第一次使用一样，只需要运行<code>start.bat</code>（macOS / Linux则是<code>./start.sh</code>）。只要<code>.env</code>文件还在，就不需要重新配置环境变量。之前的对话、图片、记下来的资料也都会保存。</li>
+  <li><b>存储位置</b>：在快速启动脚本中，所有数据都存在Vallotton文件夹里。对话在<code>tmp/dev.sqlite3</code>这个文件里，图片在<code>tmp/media</code>文件夹里，密钥和密码在<code>.env</code>文件里。</li>
+  <li>关掉浏览器或者标签页不会停止服务，也不会打断正在画的图，关掉后台窗口才会停止。</li>
+</ul>
+
+<h2 id="trouble">出了问题怎么办</h2>
+<p>以下是一个简易的问题自查表。</p>
+<div class="wrap"><table>
+<tr><th>看到的现象</th><th>原因和处理办法</th></tr>
+<tr><td>第一次运行时卡在下载，或者提示「Could not download Python」</td><td>电脑上没有Python 3.12以上的版本时，第一次运行需要联网下载大约40 MB。如果网络不通或者需要代理，那么先连好网络或者设好代理再运行。如果下载到一半中断了，那么删掉Vallotton文件夹下的<code>.runtime</code>目录重新运行。</td></tr>
+<tr><td>提示「端口8000被占用」</td><td>快速启动脚本的后端默认运行在8000端口上。遇到这个提示说明电脑上有别的程序正在用8000端口。你可以在命令行里带参数启动换一个端口：（以换成8020为例）Windows是<code>start.bat --api-port 8020</code>，macOS / Linux是<code>./start.sh --api-port 8020</code>，然后网页地址会变成<code>http://localhost:8020</code>。</td></tr>
+<tr><td>面板里NovelAI那一行是红色的</td><td>NovelAI的密钥填错了，或者订阅已经过期。用记事本打开Vallotton文件夹里的<code>.env</code>文件，把<code>NOVELAI_API_KEY=</code>后面的内容换成正确的密钥，保存，然后重新启动。</td></tr>
+<tr><td>面板里大模型的余额显示「查不到」，或者发消息后一直停在「正在构思」</td><td>DeepSeek的密钥不对、账户里没有余额，或者电脑连不上DeepSeek的服务器。先到platform.deepseek.com确认密钥和余额；密钥不对就改<code>.env</code>里<code>DEEPSEEK_API_KEY=</code>那一行。</td></tr>
+<tr><td>画图失败，错误里有「402」</td><td>NovelAI账号里的点数（Anlas）用完了。这通常是因为用了「高」画质。在网页右侧的「生成设置」里把画质改回「中」。</td></tr>
+<tr><td>网页右下角显示NovelAI「状态未知」</td><td>查询NovelAI账号状态的接口偶尔连不上，不影响画图。几分钟后会自己恢复。</td></tr>
+<tr><td>想看更详细的运行记录</td><td>Vallotton文件夹下的<code>tmp/quickstart-后端.log</code>和<code>tmp/quickstart-前端.log</code>两个文件里有完整记录。</td></tr>
+</table></div>
+
+<h2 id="next">接下来</h2>
+<ul>
+  <li><a href="guide.html">进阶指南</a>Vallotton的进阶使用指南，包括术语表和内部原理的简要说明等。</li>
+  <li><a href="deploy.html">部署教程</a>：如果你想让Vallotton一直运行，可以在不同的设备（包括手机）上随时打开，那么就需要把它部署到一台服务器上。这一章是详细的部署教程。</li>
+</ul>
+
+<div class="pager"><a href="index.html">← 前言</a><a href="guide.html">进阶指南 →</a></div>
+</article>
+</main>
+<footer class="foot">
+  <span>Vallotton · AI绘图工作室</span>
+  <a href="quickstart.html">快速上手</a>
+  <a href="guide.html">进阶指南</a>
+  <a href="deploy.html">部署教程</a>
+</footer>
+</body>
+</html>

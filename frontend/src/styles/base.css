@@ -1,0 +1,130 @@
+/* ==========================================================================
+   base
+   ========================================================================== */
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+
+/* The shell never scrolls, so overscroll-behavior on the body has nothing to
+   act on — a sideways gesture would fall straight through to the browser's
+   back/forward navigation. Say it on the root as well, where the viewport
+   picks it up regardless, and useSwipeDrawer cancels the gesture outright
+   once it has judged one horizontal. */
+html { overscroll-behavior: none; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+button { font: inherit; color: inherit; border: none; background: none; padding: 0; cursor: pointer; }
+textarea, input { font: inherit; color: inherit; }
+a { color: var(--accent-strong); text-underline-offset: 0.2em; }
+
+/* Selected text is accent on accent-ink, on every ground including form
+   fields: see --selection-bg in tokens.css for why it is never a tint */
+::selection,
+input::selection,
+textarea::selection { background: var(--selection-bg); color: var(--selection-ink); }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--r-1);
+}
+
+/* figures line up in columns wherever they are read as data */
+.quota-line span, .lightbox-bar span, .seg-item, .tag-group-count,
+.msg-meta, .p-value { font-variant-numeric: tabular-nums; }
+
+* { scrollbar-width: thin; scrollbar-color: var(--rule-strong) transparent; }
+*::-webkit-scrollbar { width: 7px; height: 7px; }
+*::-webkit-scrollbar-thumb { background: var(--rule-strong); border-radius: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* ---- the brand shape: a niche cut into the page ------------------------- */
+.arch {
+  border-radius: var(--arch);
+  background: var(--tint);
+}
+
+/* ---- an editorial section marker: label, then a rule to the margin ------ */
+.rule-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.rule-label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+/* ==========================================================================
+   set text
+   ========================================================================== */
+
+.md p { margin: 0.55em 0; }
+.md ul, .md ol { margin: 0.55em 0; padding-left: 1.35em; }
+.md h1, .md h2, .md h3 {
+  margin: 1em 0 0.35em;
+  font-family: var(--font-display);
+  font-size: 1.25em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--accent-deep);
+}
+/* a quotation hangs off a single accent rule */
+.md blockquote {
+  margin: 0.7em 0;
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 1px solid var(--accent);
+  color: var(--ink-2);
+}
+.md pre {
+  padding: 11px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-1);
+  background: var(--surface-2);
+  overflow-x: auto;
+  font-size: 12.5px;
+}
+.md code { font-family: var(--font-mono); font-size: 0.9em; }
+.md :not(pre) > code { padding: 0.1em 0.35em; border-radius: var(--r-1); background: var(--surface-2); }
+/* tables: horizontal rules only, no frame, no stripes */
+.md table { display: block; overflow-x: auto; margin: 0.7em 0; border-collapse: collapse; }
+.md th, .md td { padding: 6px 14px 6px 0; border-bottom: 1px solid var(--rule); font-size: 13px; text-align: left; }
+.md th { font-weight: 500; letter-spacing: 0.06em; color: var(--ink-2); }
+.md img { max-width: 100%; border-radius: var(--r-2); }
+.md a { text-decoration: underline; text-decoration-thickness: 1px; }
+.md hr { border: none; border-top: 1px solid var(--rule); margin: 1.2em 0; }
+
+/* ==========================================================================
+   utilities
+   ========================================================================== */
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--tint);
+  border-top-color: var(--accent);
+  border-radius: 999px;
+  animation: spin 0.9s linear infinite;
+}
+
+.fade-in { animation: fade-in var(--base) var(--ease); }
+
+.drawer-overlay { display: none; }

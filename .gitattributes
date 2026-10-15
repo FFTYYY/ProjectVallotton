@@ -1,2 +1,9 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Shell scripts must stay LF (they run inside Linux containers)
+*.sh text eol=lf
+Dockerfile text eol=lf
+
+# Batch files must stay CRLF (cmd.exe reads them line by line)
+*.bat text eol=crlf

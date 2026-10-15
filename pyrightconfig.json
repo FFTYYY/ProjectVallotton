@@ -1,0 +1,15 @@
+{
+  "typeCheckingMode": "basic",
+  "extraPaths": ["backend", "mcp"],
+  "venvPath": ".",
+  "venv": ".venv",
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.venv",
+    "tmp",
+    "example-app",
+    "backend/staticfiles",
+    "frontend"
+  ]
+}

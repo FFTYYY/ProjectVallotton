@@ -1,0 +1,73 @@
+# Vallotton — production compose.
+# Reads configuration from .env (same directory). Nothing here needs editing;
+# all knobs live in .env. See DEPLOY.md for the full deployment guide.
+#
+#   docker compose up -d --build              # db + backend + web
+#   docker compose --profile mcp up -d --build  # …plus the MCP server
+
+name: vallotton
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vallotton}
+      POSTGRES_USER: ${POSTGRES_USER:-vallotton}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # never published to the host — only reachable on the compose network
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      MEDIA_ROOT: /media
+      MEDIA_ACCEL: "1"
+      DJANGO_DEBUG: "0"
+    volumes:
+      - ${MEDIA_DIR:-./tmp/media}:/media
+    depends_on:
+      db:
+        condition: service_healthy
+    # not published to the host — nginx (web) proxies to it
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:${VALLOTTON_HTTP_PORT:-8300}:80"
+    volumes:
+      - ${MEDIA_DIR:-./tmp/media}:/media:ro
+
+  mcp:
+    build: ./mcp
+    profiles: ["mcp"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8766"
+      VALLOTTON_BACKEND_URL: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      # MCP_BIND=0.0.0.0 exposes MCP directly on the host port (no reverse
+      # proxy); the default keeps it loopback-only.
+      - "${MCP_BIND:-127.0.0.1}:${MCP_PUBLIC_PORT:-8301}:8766"
+
+volumes:
+  db_data:

@@ -1,0 +1,13 @@
+# root build context (frontend image)
+.git
+.env
+tmp
+instructions
+reports
+example-app
+backend/staticfiles
+**/__pycache__
+**/node_modules
+frontend/dist
+frontend/dev-dist
+**/.venv

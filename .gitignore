@@ -1,0 +1,15 @@
+# 运行时产生的东西
+.env
+tmp/
+.runtime/
+*.sqlite3
+staticfiles/
+
+# 开发环境
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+frontend/dev-dist/
+.vscode/
+.DS_Store
