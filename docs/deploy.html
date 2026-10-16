@@ -193,8 +193,8 @@ tar czf media-$(date +%F).tar.gz -C /srv/vallotton media</code></pre>
 <tr><td><code>LLM_PROVIDER</code></td><td><code>deepseek</code></td><td>用哪家的大模型：<code>deepseek</code>或<code>grok</code>。</td></tr>
 <tr><td class="req"><code>DEEPSEEK_API_KEY</code></td><td>—</td><td>DeepSeek的密钥。用DeepSeek时必填。</td></tr>
 <tr><td><code>DEEPSEEK_MODEL</code></td><td><code>deepseek-flash</code></td><td>用DeepSeek的哪个模型型号。</td></tr>
-<tr><td><code>DEEPSEEK_REASONING_EFFORT</code></td><td><code>max</code></td><td>DeepSeek在理解对话、规划画面时的推理强度。</td></tr>
-<tr><td><code>DEEPSEEK_DRAW_REASONING_EFFORT</code></td><td><code>max</code></td><td>DeepSeek写绘图提示词时的推理强度。</td></tr>
+<tr><td><code>DEEPSEEK_REASONING_EFFORT</code></td><td><code>high</code></td><td>DeepSeek在理解对话、规划画面时的推理强度，可填<code>low</code>、<code>high</code>、<code>max</code>。<code>max</code>每张图要多等一倍以上的时间，图并不更好。</td></tr>
+<tr><td><code>DEEPSEEK_DRAW_REASONING_EFFORT</code></td><td><code>high</code></td><td>DeepSeek写绘图提示词时的推理强度，可填的值同上。</td></tr>
 <tr><td><code>DEEPSEEK_MAX_TOKENS</code></td><td><code>128000</code></td><td>一次回答最多输出多少token。如果设得太小，回答会容易被截断。</td></tr>
 <tr><td><code>DEEPSEEK_RETRIES</code></td><td><code>2</code></td><td>DeepSeek回答为空或者格式不对时，自动重试次数（DeepSeek偶尔会有格式问题）。</td></tr>
 <tr><td><code>DEEPSEEK_CONTEXT_LIMIT</code></td><td><code>1000000</code></td><td>DeepSeek上下文的上限。</td></tr>

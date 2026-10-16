@@ -161,6 +161,30 @@ def tags_to_check(prompt: str) -> list[str]:
     return out
 
 
+def tag_key(piece: str) -> str:
+    """
+    One tag, as the app tells two apart: lower-cased, underscores read as
+    spaces, NovelAI's emphasis taken off -- `{{rim light}}`, `[rim light]`,
+    `1.2::rim light::` and `rim_light` are all the tag `rim light`.
+
+    This is the key everything dedupes on: prompt.join writes a tag once
+    whatever its dressing, prompt.lint reports a repeat by the same rule, and
+    merge_negative keeps the default negative behind the picture's own by it.
+    Three places with three ideas of "the same tag" would send a tag twice,
+    which is how NovelAI is told to weight it. Empty for a piece that is only
+    a weight (`1.5::`), which is not a tag and is left as it is.
+    """
+    piece = " ".join((piece or "").replace("_", " ").strip().lower().split())
+    if "::" in piece:
+        parts = [p.strip() for p in piece.split("::") if p.strip()]
+        piece = parts[-1] if parts else ""
+        if piece.replace(".", "").replace("-", "").isdigit():
+            return ""
+    while len(piece) > 1 and piece[0] in "{[" and piece[-1] in "}]":
+        piece = piece[1:-1].strip()
+    return piece
+
+
 def quality_words(has_text: bool) -> str:
     """The words NovelAI's own client adds to every prompt: the quality words,
     and `no text` only when the picture is not asked to render any text."""
@@ -204,8 +228,9 @@ def merge_negative(negative_prompt: str) -> str:
     seen: set[str] = set()
     for word in [t.strip() for t in (negative_prompt or "").split(",")] + \
             [t.strip() for t in DEFAULT_NEGATIVE.split(",")]:
-        if word and word.lower() not in seen:
-            seen.add(word.lower())
+        key = tag_key(word)
+        if word and key not in seen:
+            seen.add(key)
             out.append(word)
     return ", ".join(out)
 

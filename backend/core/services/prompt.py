@@ -77,8 +77,12 @@ list rather than to whoever last looked at a prompt:
      set apart by a space. A stop is never followed by a comma, a comma never
      by a stop; no empty item, no doubled separator, no separator at either
      end, no doubled space.
-  4. No repeats. A tag appears once, the first time it is written (case
-     blind): two entries sharing a tag must not weight it.
+  4. No repeats. A tag appears once, the first time it is written -- case,
+     underscores and NovelAI's emphasis marks aside (`{{rim light}}` after
+     `rim light` is the same tag, see novelai.tag_key): two entries sharing
+     a tag must not weight it, and neither must a model that wrote it in two
+     slots. A sentence appears once too, the first time it is said (case and
+     final stop aside), wherever the slots or an edit's `add` repeated it.
   5. Verbatim lines. A picked line goes out as the entry has it, changed
      only by this picture's patches; a line not in `use` does not go out.
   6. Script. Everything is English except the text slot: a sign may read in
@@ -188,15 +192,23 @@ def sentences(pieces) -> str:
     Prose pieces as one run of sentences (invariant 3): each ends with a
     stop and they are set apart by a space. Joined with a comma like tags
     they read 「...passersby., Seen from...」, a stop and a comma in a row.
+    A sentence said twice -- in two slots, or added by an edit when it was
+    already there -- goes out once (invariant 4).
     """
-    out = []
+    out: list[str] = []
+    seen: set[str] = set()
     for piece in pieces:
         piece = " ".join((piece or "").split()).strip(" ,;")
         if not piece:
             continue
         if piece[-1] not in ".!?":
             piece += "."
-        out.append(piece)
+        for sentence in split_sentences(piece):
+            key = _sentence_key(sentence)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(sentence)
     return " ".join(out)
 
 
@@ -343,8 +355,8 @@ def lint(nai_prompts: dict, picture: dict | None = None) -> list[str]:
                 tagged = tagged.replace(spoken, "")
         seen: set[str] = set()
         for t in tags(tagged):
-            key = t.rstrip(".!?").strip().lower()
-            if key in seen:
+            key = novelai.tag_key(t.rstrip(".!?"))
+            if key and key in seen:
                 faults.append(f"{where}: repeated tag 「{t}」")
             seen.add(key)
         body = prompt.replace(text, "") if text else prompt
@@ -376,10 +388,15 @@ def join(items) -> str:
         # 「!」「!?」「...」 are tags on Danbooru; only a stop BEHIND words goes
         if bare:
             t = bare
-        key = t.lower()
-        if t and key not in seen:
-            seen.add(key)
-            out.append(t)
+        if not t:
+            continue
+        # the same tag in different dressing is the same tag (invariant 4);
+        # a piece that is only a weight has no key and is passed through
+        key = novelai.tag_key(t)
+        if key and key in seen:
+            continue
+        seen.add(key)
+        out.append(t)
     return ", ".join(out)
 
 
@@ -543,9 +560,13 @@ def split_sentences(text: str | None) -> list[str]:
     return [s.strip() for s in re.split(r"(?<=[.!?])\s+", (text or "").strip()) if s.strip()]
 
 
+def _sentence_key(s: str) -> str:
+    """A sentence as two are compared: case and the final stop aside."""
+    return " ".join(s.lower().rstrip(".!?").split())
+
+
 def _same_sentence(a: str, b: str) -> bool:
-    norm = lambda s: " ".join(s.lower().rstrip(".!?").split())  # noqa: E731
-    return norm(a) == norm(b)
+    return _sentence_key(a) == _sentence_key(b)
 
 
 def _merge_prose(old: str, op, where: str) -> str:

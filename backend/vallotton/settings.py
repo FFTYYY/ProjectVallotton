@@ -240,14 +240,20 @@ GROK_MAX_TOKENS = int(env("GROK_MAX_TOKENS", "20000") or 20000)
 # summing responses.
 DEEPSEEK_API_KEY = env("DEEPSEEK_API_KEY")
 DEEPSEEK_MODEL = env("DEEPSEEK_MODEL", "deepseek-flash")
-DEEPSEEK_REASONING_EFFORT = env("DEEPSEEK_REASONING_EFFORT", "max")
-DEEPSEEK_DRAW_REASONING_EFFORT = env("DEEPSEEK_DRAW_REASONING_EFFORT", "max")
+# The dials are none / low / high / max (medium is accepted and means high).
+# high on both, measured 2026-10-16 (reports/40): max/max took a median 5.2
+# minutes a turn against 2.2 for high/high, and the pictures were no better;
+# the drawing model at low starts piling up synonyms and made-up tags, the
+# lead at low starts writing tags into its own brief.
+DEEPSEEK_REASONING_EFFORT = env("DEEPSEEK_REASONING_EFFORT", "high")
+DEEPSEEK_DRAW_REASONING_EFFORT = env("DEEPSEEK_DRAW_REASONING_EFFORT", "high")
 # Reasoning tokens count against this and its docs warn that a truncated
 # answer comes back as broken JSON, so it is generous on purpose.
 #
 # 128000 because that is what the API itself defaults to at reasoning_effort
-# "max" — 64K is the default for ordinary thinking, and setting max effort while
-# capping at 64K halves the budget the model is sizing its thinking against.
+# "max" — 64K is the default for ordinary thinking, and someone who turns the
+# dial up to max while this capped at 64K would halve the budget the model is
+# sizing its thinking against. At high it is simply an upper bound.
 # It stays just under 131,072, the smallest max-output among the OpenRouter
 # hosts this app is willing to route to (see the road comment in
 # providers/deepseek.py); raising it past that is what would make the second

@@ -193,8 +193,8 @@ tar czf media-$(date +%F).tar.gz -C /srv/vallotton media</code></pre>
 <tr><td><code>LLM_PROVIDER</code></td><td><code>deepseek</code></td><td>Whose language model to use: <code>deepseek</code> or <code>grok</code>.</td></tr>
 <tr><td class="req"><code>DEEPSEEK_API_KEY</code></td><td>—</td><td>DeepSeek key. Required when using DeepSeek.</td></tr>
 <tr><td><code>DEEPSEEK_MODEL</code></td><td><code>deepseek-flash</code></td><td>Which DeepSeek model to use.</td></tr>
-<tr><td><code>DEEPSEEK_REASONING_EFFORT</code></td><td><code>max</code></td><td>DeepSeek's reasoning effort when understanding the conversation and planning the picture.</td></tr>
-<tr><td><code>DEEPSEEK_DRAW_REASONING_EFFORT</code></td><td><code>max</code></td><td>DeepSeek's reasoning effort when writing the drawing prompt.</td></tr>
+<tr><td><code>DEEPSEEK_REASONING_EFFORT</code></td><td><code>high</code></td><td>DeepSeek's reasoning effort when understanding the conversation and planning the picture: <code>low</code>, <code>high</code> or <code>max</code>. <code>max</code> more than doubles the wait for every picture without making it better.</td></tr>
+<tr><td><code>DEEPSEEK_DRAW_REASONING_EFFORT</code></td><td><code>high</code></td><td>DeepSeek's reasoning effort when writing the drawing prompt; same values.</td></tr>
 <tr><td><code>DEEPSEEK_MAX_TOKENS</code></td><td><code>128000</code></td><td>The most tokens one answer may contain. Set it too small and answers get cut off easily.</td></tr>
 <tr><td><code>DEEPSEEK_RETRIES</code></td><td><code>2</code></td><td>How many times to retry automatically when DeepSeek's answer is empty or malformed (DeepSeek has formatting hiccups now and then).</td></tr>
 <tr><td><code>DEEPSEEK_CONTEXT_LIMIT</code></td><td><code>1000000</code></td><td>DeepSeek's context limit.</td></tr>

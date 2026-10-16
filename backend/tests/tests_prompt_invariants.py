@@ -92,6 +92,29 @@ class RenderedPromptInvariantsTests(SimpleTestCase):
                          "1girl, Her robe is coarse wool and a rope is knotted at her waist, standing")
         self.assertEqual(prompt_slots.lint(out), [])
 
+    def test_a_tag_in_different_dressing_and_a_sentence_said_twice_go_out_once(self):
+        from core.services import novelai
+        picture = _picture({"scene": {"tags": "rim light", "prose": "The cat sleeps on the table."},
+                            "light": {"tags": "{{rim light}}, rim_light, 1.2::Rim Light::, [rim light]"},
+                            "other": {"tags": "", "prose": "the cat sleeps on the table"}},
+                           [{"look_tags": "black cat, {black cat}", "look_prose": "It sleeps on the table.",
+                             "moment_prose": "It sleeps on the table. Its tail hangs down."}])
+        out = prompt_slots.render(picture, {})
+        # the first spelling wins; emphasis, underscores and case are not a difference
+        self.assertEqual(out["base_prompt"], "rim light, The cat sleeps on the table.")
+        self.assertEqual(out["character_prompts"][0]["prompt"], "black cat, It sleeps on the table. Its tail hangs down.")
+        self.assertEqual(prompt_slots.lint(out, picture), [])
+        # lint judges a repeat by the same rule
+        self.assertIn("base: repeated tag 「{{rim light}}」",
+                      prompt_slots.lint({"base_prompt": "rim light, {{rim light}}", "character_prompts": [],
+                                         "negative_prompt": ""}))
+        # and so does the negative, where the default negative sits behind the picture's own
+        merged = novelai.merge_negative("Text, {{text}}, lowres, LOWRES")
+        self.assertEqual(merged.lower().count("text"), 1)
+        self.assertEqual(merged.lower().count("lowres"), 1)
+        # a piece that is only a weight is not a tag: it is neither deduped nor dropped
+        self.assertEqual(prompt_slots.join(["1.5::", "rain", "night ::", "1.5::"]), "1.5::, rain, night ::, 1.5::")
+
     def test_a_character_with_nothing_to_say_is_left_out(self):
         picture = _picture({"count": {"tags": "1girl"}}, [{"look_tags": "red dress"}, {}])
         out = prompt_slots.render(picture, {})
