@@ -149,17 +149,62 @@ LIBRARY_STYLE_LINE_MARK = "（画风行，应用自动拼进 style，不用挑�
 LIBRARY_NO_LINES = "（资料库里还没有带 tag 的条目）"
 #: Under an entry that has prose but no lines: the prose is what there is.
 LIBRARY_PROSE_LABEL = "正文（没有 tag 行，照着写）"
-#: A line whose "what is this" the model left blank.
-LINE_PART_OTHER = "其他"
+#: What a tag line's `part` says for the three lines the app itself
+#: recognises, by core.i18n code:
+#:   style     a setting's style line: goes into every picture's style slot
+#:             by itself, never picked
+#:   identity  the line that says who this is (`1girl`, a character tag):
+#:             picked for every picture whatever the composition
+#:   other     what the app writes when the model left the part blank
+#: The model is told the current language's word (the {{part_style}} and
+#: {{part_identity}} markers in the prompt files); the app recognises the
+#: word in every language, since an entry written before the switch keeps
+#: its lines. `part_word` says, `is_part` recognises.
+LINE_PARTS = {
+    "zh": {"style": "画风", "identity": "身份", "other": "其他"},
+    "en": {"style": "style", "identity": "identity", "other": "other"},
+}
+#: tag_lines.txt, after "`part`随意": in English the model is told to write
+#: the parts in English too; in Chinese nothing is added (the file is the
+#: prompt, byte for byte).
+PART_LANGUAGE_HINT = {
+    "zh": "",
+    "en": "（`part`也用英文写）",
+}
 
-#: The line that says who this is (`1girl`, a character tag). Picked for every
-#: picture whatever the composition; check() says so when it is not.
-LINE_PART_IDENTITY = "身份"
-#: The part name of a setting's style line: these lines go into every
-#: picture's style slot by themselves; a setting's other lines are picked.
-LINE_PART_STYLE = "画风"
+
+def part_word(kind: str) -> str:
+    """The current language's word for the `style`, `identity` or `other` part."""
+    from core import i18n
+    return LINE_PARTS[i18n.current()][kind]
+
+
+def is_part(part: object, kind: str) -> bool:
+    """Whether a line's `part` names the `style`, `identity` or `other` line, in any language."""
+    return part in {table[kind] for table in LINE_PARTS.values()}
 #: The handle of a subject that is not a library entry: 主体1, 主体2…
 SUBJECT_KEY = "主体{n}"
+
+# ==========================================================================
+# The person's language, by core.i18n code
+#
+# The prompts are Chinese whatever the account chose; these are the few
+# phrases in them that name the language of what comes OUT — the reply, and
+# the prose of a library entry — and they are spliced in where lead.txt and
+# patrol.txt carry the marker (core.prompts.REPLY_LANGUAGE_MARK and
+# PROSE_LANGUAGE_MARK). One value per language, same keys as i18n.CODES.
+# ==========================================================================
+
+#: lead.txt 「你的性格」: the sentence that says what language replies are in
+REPLY_LANGUAGE = {
+    "zh": "使用用户的语言（通常是中文）",
+    "en": "使用用户的语言（通常是英文）。资料库条目的名称、正文和 tag 行的 part 也用英文写",
+}
+#: lead.txt 「正文」 and patrol.txt: the word for the language of entry prose
+PROSE_LANGUAGE = {
+    "zh": "中文",
+    "en": "英文",
+}
 
 #: The tag-table lookup, answered in the model's own history: the heading over
 #: the result, and the line added when no further lookups are allowed.
@@ -268,6 +313,10 @@ TITLE_SYSTEM = (
     "不要标点结尾、不要任何解释。语言与对话一致，最多 12 个字。"
 )
 TITLE_USER = "用户：{user}\n助手：{reply}"
+#: appended to TITLE_SYSTEM: the title in the language the account speaks
+#: (the conversation alone did not settle it: an English conversation still
+#: came back with a Chinese title). One value per language, like REPLY_LANGUAGE.
+TITLE_LANGUAGE = {"zh": "", "en": "标题用英文。"}
 #: stand-in when the first user turn was an image with no words
 TITLE_IMAGE_PLACEHOLDER = "(图片)"
 

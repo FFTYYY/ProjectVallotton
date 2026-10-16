@@ -3,13 +3,28 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { NavLink } from "react-router-dom";
 
 import type { Conversation } from "../api/types";
+import { useLanguage } from "../i18n/language";
+import { nextLanguage } from "../i18n/languages";
 import { confirmArchive } from "../lib/archive";
+import { confirmLogout } from "../lib/logout";
+import { useAppSettings } from "../store/appSettings";
 import { useAuth } from "../store/auth";
 import { useChat } from "../store/chat";
 import { useProjects } from "../store/projects";
 import { useUi } from "../store/ui";
 import { ArchiveList } from "./ArchiveList";
-import { ComposeInIcon, DotsIcon, FolderIcon, GearIcon, NewChatIcon } from "./Icons";
+import { nextTheme, useTheme, type ThemeId } from "../theme/theme";
+import {
+  ComposeInIcon,
+  DotsIcon,
+  FolderIcon,
+  GearIcon,
+  LanguagesIcon,
+  LogOutIcon,
+  MoonIcon,
+  NewChatIcon,
+  SunIcon,
+} from "./Icons";
 import { ProjectTree } from "./ProjectTree";
 import { QuotaPanel } from "./QuotaPanel";
 import { t } from "../uiText";
@@ -18,6 +33,49 @@ interface SidebarProps {
   open: boolean;
   dragging: boolean;
   onClose: () => void;
+}
+
+/** the icon that stands for a theme: what the switch shows for the one it goes to */
+const THEME_ICON: Record<ThemeId, typeof SunIcon> = { light: SunIcon, dark: MoonIcon };
+
+/**
+ * Beside the username: switch the language, switch the theme, log out.
+ *
+ * Icons, because the foot of a rail has room for a glyph and not for three
+ * labels; the title says what each does. Each switch goes to the NEXT entry
+ * of its registry and shows that entry, so a third language or theme needs
+ * no new button. Log out is red and asks first: it is the one of the three
+ * that costs something to press by mistake. The whole foot is off on a
+ * phone (sidebar.css); there the settings page carries all three.
+ */
+function UserActions({ onLogout }: { onLogout: () => void }) {
+  const language = useLanguage((s) => s.language);
+  const chooseLanguage = useAppSettings((s) => s.chooseLanguage);
+  const theme = useTheme((s) => s.theme);
+  const toggleTheme = useTheme((s) => s.toggle);
+  const toLanguage = nextLanguage(language);
+  const toTheme = nextTheme(theme);
+  const ToThemeIcon = THEME_ICON[toTheme.id];
+  const languageLabel = t.switchLanguageTo(toLanguage.label);
+  const themeLabel = t.switchThemeTo(t.themeNames[toTheme.id]);
+  return (
+    <div className="sidebar-user-actions">
+      <button
+        className="user-action"
+        title={languageLabel}
+        aria-label={languageLabel}
+        onClick={() => chooseLanguage(toLanguage.code)}
+      >
+        <LanguagesIcon size={15} />
+      </button>
+      <button className="user-action" title={themeLabel} aria-label={themeLabel} onClick={toggleTheme}>
+        <ToThemeIcon size={15} />
+      </button>
+      <button className="user-action danger" title={t.logout} aria-label={t.logout} onClick={onLogout}>
+        <LogOutIcon size={15} />
+      </button>
+    </div>
+  );
 }
 
 function ConvItem({ conv, active }: { conv: Conversation; active: boolean }) {
@@ -217,6 +275,7 @@ export function Sidebar({ open, dragging, onClose }: SidebarProps) {
   }
 
   async function onLogout() {
+    if (!(await confirmLogout())) return;
     await logout();
     navigate("/login");
   }
@@ -310,10 +369,8 @@ export function Sidebar({ open, dragging, onClose }: SidebarProps) {
       <div className="sidebar-foot">
         <QuotaPanel />
         <div className="sidebar-user">
-          <span>{username}</span>
-          <button className="logout-btn" onClick={onLogout}>
-            {t.logout}
-          </button>
+          <span className="sidebar-username">{username}</span>
+          <UserActions onLogout={onLogout} />
         </div>
       </div>
     </aside>

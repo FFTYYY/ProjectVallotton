@@ -213,8 +213,6 @@ class FakeProvider(Provider):
     def long_context_threshold(self) -> int:
         return 200_000
 
-    def long_context_note(self, threshold: str) -> str:
-        return f"这个对话的上下文已超过 {threshold}。"
 
 
 # ------------------------------------------------------------------ helpers

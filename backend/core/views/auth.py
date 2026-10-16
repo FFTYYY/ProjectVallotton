@@ -13,6 +13,7 @@ from django.middleware.csrf import get_token
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
+from core import i18n
 from core.http import client_ip, constant_time_eq, json_err, json_ok
 from core.models import LoginAttempt
 from core import ui_text
@@ -94,6 +95,12 @@ def logout(request):
 
 @require_GET
 def me(request):
+    # the language goes out before login too: the login page is the one
+    # screen that cannot ask for it afterwards, and the choice is not a secret
     if not request.user.is_authenticated:
-        return json_ok({"authenticated": False})
-    return json_ok({"authenticated": True, "username": request.user.username})
+        return json_ok({"authenticated": False, "language": i18n.current()})
+    return json_ok({
+        "authenticated": True,
+        "username": request.user.username,
+        "language": i18n.current(),
+    })

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from django.test import SimpleTestCase, override_settings
 
-from core import prompts
+from core import i18n, prompts
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -51,12 +51,17 @@ def quickstart_template() -> dict[str, str]:
 
 class UsageScenarioTests(SimpleTestCase):
     def setUp(self):
+        # the prompts name the person's language; these tests are about the
+        # usage section and read them in Chinese without a database
+        self.enterContext(i18n.use("zh"))
         self.example = env_example()
         self.lead_text = self.example.get("LEAD_USAGE_SCENARIO", "")
         self.draw_text = self.example.get("DRAW_USAGE_SCENARIO", "")
 
     def test_with_the_original_texts_the_prompts_are_exactly_what_they_were(self):
-        with override_settings(LEAD_USAGE_SCENARIO=ORIGINAL_LEAD, DRAW_USAGE_SCENARIO=ORIGINAL_DRAW):
+        """In Chinese: the snapshots predate the choice of language, and
+        tests_i18n holds the English prompt to the Chinese one."""
+        with override_settings(LEAD_USAGE_SCENARIO=ORIGINAL_LEAD, DRAW_USAGE_SCENARIO=ORIGINAL_DRAW), i18n.use("zh"):
             self.assertEqual(prompts.lead(), (FIXTURES / "prompt_lead.txt").read_text(encoding="utf-8"))
             self.assertEqual(prompts.drawing(), (FIXTURES / "prompt_drawing.txt").read_text(encoding="utf-8"))
             self.assertEqual(prompts.drawing() + "\n\n" + prompts.drawing_edit(),

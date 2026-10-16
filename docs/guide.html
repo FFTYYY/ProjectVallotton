@@ -20,6 +20,7 @@
     <a href="quickstart.html">快速上手</a>
     <a class="active" href="guide.html">进阶指南</a>
     <a href="deploy.html">部署教程</a>
+    <a class="lang" href="en/guide.html" lang="en">English</a>
   </nav>
 </div></header>
 
@@ -47,7 +48,7 @@
     <a class="l2" href="#project-page">项目界面</a>
     <a href="#gen-settings">生成设置</a>
     <a href="#reflection">反思</a>
-    <a href="#continuous">连续生成和快捷短语</a>
+    <a href="#phrases">连续生成和快捷短语</a>
     <a href="#inspect">检查器</a>
     <a href="#settings-page">设置页</a>
     <a href="#mobile">在手机上用</a>
@@ -64,7 +65,7 @@
 <figure><img class="shot" src="assets/shots/layout.jpg" alt="Vallotton 的核心工作界面，左边栏、中间、右边栏和输入框各用橙色框标了出来" loading="lazy"><figcaption>核心工作界面。四个部分的用途见下表。</figcaption></figure>
 <div class="wrap"><table style="--first-col: 6em">
 <tr><th>位置</th><th>用途</th></tr>
-<tr><td>左边栏</td><td>最上面是设置页的入口和「新对话」按钮。下面有三个标签，对应三种查看对话的方式：「对话」按时间列出所有对话；「项目」按项目分类列出，见<a href="#projects">项目界面</a>；「已归档」列出收起来的对话。左边栏底部显示NovelAI和DeepSeek的余额、一共画了多少张图等信息。</td></tr>
+<tr><td>左边栏</td><td>最上面是设置页的入口和「新对话」按钮。下面有三个标签，对应三种查看对话的方式：「对话」按时间列出所有对话；「项目」按项目分类列出，见<a href="#projects">项目界面</a>；「已归档」列出收起来的对话。左边栏底部显示NovelAI和DeepSeek的余额、一共画了多少张图等信息，以及用户名和三个按钮：切换语言、切换配色、退出登录。</td></tr>
 <tr><td>中间</td><td>对话本身，包括你说的话、Vallotton的回复、画出来的图等。</td></tr>
 <tr><td>右边栏</td><td>当前这个对话的设置，包括标题、可以用的资料库条目、生成设置、快捷短语等，见<a href="#rightbar">右边栏</a>。右上角的按钮可以收起或者打开右边栏。</td></tr>
 <tr><td>输入框</td><td>在这里输入你想画的东西，按<kbd>Enter</kbd>发送，按<kbd>Shift</kbd>+<kbd>Enter</kbd>换行。左下角的回形针按钮用来添加参考图。输入框上方的一排标签显示这个对话正在用的资料库条目和生成设置。</td></tr>
@@ -108,7 +109,7 @@
   <li><b>当前对话</b>：对话的标题（可以直接改）、属于哪个项目、什么时候创建的，以及上下文（长度）等信息。</li>
   <li><b>资料库</b>：这个对话可以用的所有条目，点一下条目就能挂上或者取下，见<a href="#selection">挂上和取下</a>。</li>
   <li><b>生成设置</b>：这个对话画图时用的设置，见<a href="#gen-settings">生成设置</a>。</li>
-  <li><b>快捷短语</b>：预先写好的常用句子，见<a href="#continuous">连续生成和快捷短语</a>。</li>
+  <li><b>快捷短语</b>：预先写好的常用句子，见<a href="#phrases">连续生成和快捷短语</a>。</li>
 </ul>
 <figure><img class="shot narrow" src="assets/shots/rightbar.png" alt="右边栏：当前对话、资料库（「本对话」下的两个条目，右边是编辑和删除按钮）、生成设置、快捷短语" loading="lazy"><figcaption>右边栏。「本对话」下面是只属于这个对话的条目，右边是编辑和删除按钮；对话放进项目以后，还会多一个「存到项目」，见<a href="#layers">本对话和项目</a>。</figcaption></figure>
 
@@ -184,7 +185,7 @@
 <p>如果开了反思功能，那么每张图画完之后，Vallotton都会自己先看一遍，对照你的要求检查有没有画错的地方，比如说了戴眼镜结果没戴、少画几个人物、透视关系错误之类的。如果发现了问题，它会修改以后重画，直到满意或者反思轮数用完为止。</p>
 <p>在右边栏的生成设置里把「反思轮数」调到1以上，就打开了反思功能。画的过程中，对话里会显示「正在端详这张画」「正在重画」等进度。重画出来的图会替换掉之前的图。在重画过程中，如果打断生成，那么就会以重画前的输出作为结果。</p>
 
-<h2 id="continuous">快捷短语</h2>
+<h2 id="phrases">快捷短语</h2>
 <p>快捷短语是预先写好的常用句子，比如「这幅图的画风使用日式数字插画画风」这样的规定画风的句子。你可以在右边栏或者设置页里新建和编辑快捷短语。在右边栏中点一下快捷短语它就会被自动填进输入框。</p>
 
 
@@ -203,12 +204,12 @@
 <figure><img class="shot" src="assets/shots/inspector.png" alt="检查器：最上面是 Vallotton 的回复，下面是它整理出来的画面描述" loading="lazy"><figcaption>检查器。最上面是Vallotton的回复，接着是它整理出来的画面描述，往下滚动还有提示词、反思记录等。</figcaption></figure>
 
 <h2 id="settings-page">设置页</h2>
-<p>点左边栏最上面的「设置」进入设置页。设置页可以用来配置生成选项的默认值，管理快捷短语，以及检查各种后台状态。</p>
-<figure><img class="shot" src="assets/shots/settings.png" alt="设置页：新对话的默认生成设置、快捷短语、线路、正在进行、余额、账号" loading="lazy"><figcaption>设置页。</figcaption></figure>
+<p>点左边栏最上面的「设置」进入设置页。设置页的第一行可以切换语言和配色；下面可以配置生成选项的默认值，管理快捷短语，以及检查各种后台状态。</p>
+<figure><img class="shot" src="assets/shots/settings.png" alt="设置页：语言和配色、新对话的默认生成设置、快捷短语、线路、正在进行、余额、账号" loading="lazy"><figcaption>设置页。</figcaption></figure>
 
 <h2 id="mobile">在手机上用</h2>
 <p>Vallotton可以当作手机app来用。用手机浏览器打开Vallotton的地址，选择「安装并创建快捷方式」（不同浏览器不一样，也可能是「添加到主屏幕」、「安装」之类的）。之后会在主屏幕上创建一个app图标，可以和普通的app一样使用。</p>
-<p>手机上的界面和电脑上大体相同。左上角的按钮（或者从左往右滑动）打开左边栏，输入框右上方的按钮打开右边栏。</p>
+<p>手机上的界面和电脑上大体相同。左上角的按钮（或者从左往右滑动）打开左边栏，输入框右上方的按钮打开右边栏。手机上的左边栏没有用户名那一行，切换语言和配色在设置页的第一行。</p>
 <p>需要注意的是，如果是按<a href="quickstart.html">快速上手</a>在自己电脑上运行的Vallotton，那么只能在这台电脑上打开。要想在手机上用，需要按<a href="deploy.html">部署教程</a>把它部署到一台服务器上。（除非你有什么特别的魔法能在局域网下让手机访问电脑的本地服务）。</p>
 <figure><div class="shots-row"><img class="shot" src="assets/shots/phone.jpg" alt="手机上的对话页面" loading="lazy"><img class="shot" src="assets/shots/phone-chip.jpg" alt="手机上点一下输入框上方的标签，弹出这个人物记下的内容" loading="lazy"></div><figcaption>手机上的样子。右图是点了一下输入框上方的标签，弹出了这个人物记下的内容。</figcaption></figure>
 

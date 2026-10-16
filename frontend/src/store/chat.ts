@@ -12,10 +12,7 @@
  */
 
 import { create } from "zustand";
-import { t } from "../uiText";
-
-/** the name a conversation carries until the model gives it one */
-const UNTITLED = t.newConversation;
+import { inEveryLanguage, t } from "../uiText";
 
 import { ApiError, api } from "../api/client";
 import { Latest } from "../lib/latest";
@@ -512,7 +509,8 @@ export const useChat = create<ChatState>((set, get) => {
      */
     awaitTitle: async (id) => {
       for (let i = 0; i < 5; i += 1) {
-        if (get().convMeta[id]?.title !== UNTITLED) return;
+        // untitled in whichever language it was made in
+        if (!inEveryLanguage("newConversation").includes(get().convMeta[id]?.title ?? "")) return;
         await new Promise((r) => setTimeout(r, 1400));
         await get().pollConversation(id);
       }

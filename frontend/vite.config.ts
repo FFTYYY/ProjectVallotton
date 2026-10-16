@@ -17,8 +17,8 @@ export default defineConfig({
         lang: "zh-CN",
         display: "standalone",
         orientation: "portrait",
-        theme_color: "#eff2f8",
-        background_color: "#eff2f8",
+        theme_color: "#151a24",
+        background_color: "#151a24",
         icons: [
           { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
           { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },

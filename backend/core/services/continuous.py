@@ -59,6 +59,7 @@ from django.utils import timezone
 
 from core.models import Conversation, Message, QuickPhrase
 from core import ui_text
+from core.services import notices
 
 log = logging.getLogger(__name__)
 
@@ -137,7 +138,7 @@ def arm(
                 id=conversation.id
             ).first()
             if conv is not None:
-                _note(conv, "continuous_start", ui_text.CONTINUOUS_NO_PHRASE)
+                _note(conv, "continuous_start", {"key": "CONTINUOUS_NO_PHRASE"})
         log.info("continuous run wanted in %s but there is no phrase to send",
                  conversation.id)
         return
@@ -159,7 +160,7 @@ def arm(
         conv.messages.filter(role="assistant", run_settled=False).update(
             run_settled=True
         )
-        _note(conv, "continuous_start", ui_text.CONTINUOUS_START.format(of=rounds))
+        _note(conv, "continuous_start", {"key": "CONTINUOUS_START", "of": rounds})
         _save(
             conv,
             {
@@ -398,20 +399,13 @@ def _close(conv: Conversation, run: dict, how: str, last: Message | None = None)
         # says so; a 生成失败 sitting under the pictures would say something
         # else. Archived, not deleted — the row and its error are still there.
         Message.objects.filter(id=last.id).update(archived=True)
-    _note(
-        conv,
-        "continuous",
-        ui_text.CONTINUOUS_SUMMARY.format(
-            head=ui_text.CONTINUOUS_HEADS.get(how, ui_text.CONTINUOUS_HEADS["stopped"]),
-            of=run["of"],
-            done=run["done"],
-            failed=run["failed"],
-        ),
-    )
+    _note(conv, "continuous", {"key": "CONTINUOUS_SUMMARY", "how": how,
+                               "of": run["of"], "done": run["done"], "failed": run["failed"]})
     log.info("continuous run in %s ended (%s): %s/%s", conv.id, how, run["done"], run["of"])
 
 
-def _note(conv: Conversation, kind: str, text: str) -> None:
+def _note(conv: Conversation, kind: str, note: dict) -> None:
+    """An app row: what happened, and the sentence as it reads right now."""
     seq = (conv.messages.aggregate(m=Max("seq"))["m"] or 0) + 1
     Message.objects.create(
         conversation=conv,
@@ -419,5 +413,6 @@ def _note(conv: Conversation, kind: str, text: str) -> None:
         role="system",
         status="done",
         notice_kind=kind,
-        content=text,
+        notice=note,
+        content=notices.render(note),
     )

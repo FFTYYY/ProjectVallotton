@@ -46,9 +46,8 @@ class GrokProvider(Provider):
     def draw_effort(self) -> str | None:
         return settings.GROK_DRAW_REASONING_EFFORT
 
-    def long_context_note(self, threshold: str) -> str:
-        # xAI prices double past this mark, which is worth saying plainly
-        return ui_text.LONG_CONTEXT_PRICED.format(threshold=threshold)
+    # xAI prices double past this mark, which is worth saying plainly
+    long_context_key = "LONG_CONTEXT_PRICED"
 
     def _headers(self) -> dict:
         return {

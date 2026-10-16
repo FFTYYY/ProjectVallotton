@@ -44,6 +44,33 @@ from core import ui_text
 
 log = logging.getLogger(__name__)
 
+
+class NameTaken(Exception):
+    """A project write that would put a second entry of one name in the
+    project. Nothing is written; `name` is the first name that collides."""
+
+    def __init__(self, name: str):
+        super().__init__(name)
+        self.name = name
+
+
+def _taken_in_project(payload: dict, conv: Conversation, folder: Folder) -> str | None:
+    """The first entry of `payload` that is this conversation's own AND already
+    named in the project chain: it cannot move up (a name is unique within a
+    layer), and merging two entries is the user's call, as it is for the
+    「存到项目」 button."""
+    for entry in payload.get("settings") or []:
+        title = str(entry.get("title") or "").strip()
+        if title and _in_conversation(Setting, conv, title=title) is not None \
+                and _nearest_in_chain(Setting, folder, title=title) is not None:
+            return title
+    for entry in payload.get("characters") or []:
+        name = str(entry.get("name") or "").strip()
+        if name and _in_conversation(Character, conv, name=name) is not None \
+                and _nearest_in_chain(Character, folder, name=name) is not None:
+            return name
+    return None
+
 #: What the app may approve without being asked.
 #:
 #: Named here because they are this module's decision to make; gensettings only
@@ -191,7 +218,7 @@ def _write_setting(entry: dict, *, folder: Folder | None, conversation: Conversa
     lines = _lines(base, entry.get("tags"), "s")
     now = timezone.now()
     born = Setting.objects.create(
-        folder=folder, conversation=conversation, title=title, content=content,
+        folder=folder if conversation is None else None, conversation=conversation, title=title, content=content,
         tags=lines, position=pos + 1, text_edited_at=now, lines_ai_at=now + library.AI_AFTER_TEXT,
     )
     done.append((ui_text.PROPOSAL_CREATED_SETTING_OWN if conversation is not None
@@ -211,7 +238,7 @@ def _own_lines(entry: dict) -> list[dict]:
     worn = {(ln["part"], ln["tags"]) for v in entry.get("variants") or []
             for ln in library.lines_of(v.get("tags"))}
     return [ln for ln in library.lines_of(entry.get("tags"))
-            if (ln["part"], ln["tags"]) not in worn or ln["part"] == wording.LINE_PART_IDENTITY]
+            if (ln["part"], ln["tags"]) not in worn or wording.is_part(ln["part"], "identity")]
 
 
 def _write_character(entry: dict, *, folder: Folder | None, conversation: Conversation | None,
@@ -235,7 +262,7 @@ def _write_character(entry: dict, *, folder: Folder | None, conversation: Conver
         now = timezone.now()
         dated = {"text_edited_at": now, "lines_ai_at": now + library.AI_AFTER_TEXT}
         existing = Character.objects.create(
-            folder=folder, conversation=conversation, name=name, description=text,
+            folder=folder if conversation is None else None, conversation=conversation, name=name, description=text,
             tags=lines, position=pos, **dated,
         )
         if base is not None:
@@ -290,9 +317,9 @@ def _write_character(entry: dict, *, folder: Folder | None, conversation: Conver
             continue
         v_content = str(v.get("content") or "")
         v_lines = [ln for ln in library.lines_of(v.get("tags"))
-                   if ln["part"] != wording.LINE_PART_IDENTITY]
+                   if not wording.is_part(ln["part"], "identity")]
         idents = [ln for ln in library.lines_of(v.get("tags"))
-                  if ln["part"] == wording.LINE_PART_IDENTITY]
+                  if wording.is_part(ln["part"], "identity")]
         old = library.lines_of(existing.tags)
         have = {(ln["part"], ln["tags"]) for ln in old}
         fresh = [ln for ln in idents if (ln["part"], ln["tags"]) not in have]
@@ -351,6 +378,11 @@ def apply_layer(proposal: LibraryProposal, payload: dict, *, to_project: bool,
     if to_project and folder is None:
         return ""
     conversation = None if to_project else conv
+    if to_project:
+        assert folder is not None
+        taken = _taken_in_project(payload, conv, folder)
+        if taken is not None:
+            raise NameTaken(taken)
     done: list[str] = []
     born_settings: list[Setting] = []
     born_variants: list[CharacterVariant] = []
@@ -364,7 +396,7 @@ def apply_layer(proposal: LibraryProposal, payload: dict, *, to_project: bool,
             existing = _nearest_in_chain(Setting, folder, title=title)
         base = None
         if existing is not None and existing.conversation_id and to_project:
-            pass        # promoted in place
+            pass        # promoted in place (_taken_in_project ruled out a clash)
         elif existing is not None and existing.conversation_id is None and not to_project:
             # shadow the project entry with a conversation one, seeded from
             # it: the project entry only changes when the user asks for that
@@ -396,7 +428,7 @@ def apply_layer(proposal: LibraryProposal, payload: dict, *, to_project: bool,
         if born_variants:
             conv.selected_variants.add(*born_variants)
 
-    return "；".join(done)
+    return ui_text.PROPOSAL_SUMMARY_SEP.join(done)
 
 
 def apply(proposal: LibraryProposal, *, select_new: bool = False) -> str:
@@ -494,7 +526,12 @@ def auto_approve(proposal: LibraryProposal, mode: str) -> bool:
     # created and left unselected is one the model cannot see next turn, which
     # is a strange thing to do with something it just asked to write down. True
     # for both modes that get this far — 「仅修改」 creates costumes.
-    done = resolve(proposal.id, approve=True, select_new=True)
+    try:
+        done = resolve(proposal.id, approve=True, select_new=True)
+    except NameTaken as exc:
+        # left pending: the card asks the person, who can tidy the project first
+        log.info("library proposal %s not applied automatically: project already has %r", proposal.id, exc.name)
+        return False
     applied = bool(done and done.status == "applied")
     if applied:
         log.info("library proposal %s applied automatically (%s)", proposal.id, mode)

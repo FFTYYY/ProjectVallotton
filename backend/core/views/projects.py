@@ -450,9 +450,11 @@ def folder_library(request, folder_id: uuid.UUID):
     folder = Folder.objects.filter(id=folder_id).first()
     if not folder:
         return json_err(ui_text.NO_FOLDER, status=404)
-    own_settings = list(folder.settings.all())
+    # the project's own entries: a conversation's own entry carries the folder
+    # it was written in, and is not the project's to show or edit
+    own_settings = list(folder.settings.filter(conversation__isnull=True))
     characters_service.repair_in([folder.id])
-    own_characters = list(folder.characters.prefetch_related("variants"))
+    own_characters = list(folder.characters.filter(conversation__isnull=True).prefetch_related("variants"))
     inh_settings, inh_characters = inherited_library(folder.parent)
     return json_ok(
         {
@@ -479,7 +481,7 @@ def create_setting(request, folder_id: uuid.UUID):
     title = str(body.get("title") or "").strip()
     if not title or len(title) > MAX_NAME:
         return json_err(ui_text.TITLE_REQUIRED.format(max=MAX_NAME))
-    if Setting.objects.filter(folder=folder, title=title).exists():
+    if Setting.objects.filter(folder=folder, conversation__isnull=True, title=title).exists():
         return json_err(ui_text.TITLE_TAKEN)
     pos = (folder.settings.aggregate(m=Max("position"))["m"] or 0) + 1
     content = str(body.get("content") or "")
@@ -712,7 +714,7 @@ def create_conversation_setting(request, conv_id: uuid.UUID):
     content = str(body.get("content") or "")
     lines = library.stamp_by([], library.assign_ids([], library.lines_of(body.get("tags")), "s"), "user")
     s = Setting.objects.create(
-        folder=conv.folder, conversation=conv, title=title, content=content,
+        folder=None, conversation=conv, title=title, content=content,
         tags=lines, position=pos, text_edited_at=timezone.now() if content.strip() else None,
     )
     conv.selected_settings.add(s)
@@ -739,7 +741,7 @@ def create_conversation_character(request, conv_id: uuid.UUID):
         description = str(body.get("description") or "")
         k_lines = library.stamp_by([], library.assign_ids([], library.lines_of(body.get("tags")), "k"), "user")
         c = Character.objects.create(
-            folder=conv.folder, conversation=conv, name=name, description=description,
+            folder=None, conversation=conv, name=name, description=description,
             tags=k_lines, position=pos,
             text_edited_at=timezone.now() if description.strip() else None,
         )
@@ -954,7 +956,11 @@ def resolve_proposal(request, proposal_id: uuid.UUID):
     # does: the lead wrote the entry down to draw from it here, and the next
     # picture reads the truth table, not the approval. Approved-but-off meant a
     # character the user had just approved was drawn from a passer-by's look.
-    done = proposals.resolve(proposal_id, approve=approve, select_new=True)
+    try:
+        done = proposals.resolve(proposal_id, approve=approve, select_new=True)
+    except proposals.NameTaken as exc:
+        # nothing written, still pending: tidy the project and press again
+        return json_err(ui_text.PROPOSAL_NAME_TAKEN.format(name=exc.name), status=409)
     if done is None:
         return json_err(ui_text.NO_PROPOSAL, status=404)
     return json_ok(proposal_to_dict(done))

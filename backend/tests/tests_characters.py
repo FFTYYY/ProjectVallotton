@@ -59,7 +59,7 @@ class ACharacterAlwaysHasAVariantTests(TestCase):
             f"/api/variants/{only.id}"
         )
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(self._variants(c), [characters_service.DEFAULT_TITLE])
+        self.assertEqual(self._variants(c), [characters_service.default_title()])
 
     def test_the_reply_already_carries_it(self):
         """Run at once rather than left to the next read, so the list the
@@ -73,7 +73,7 @@ class ACharacterAlwaysHasAVariantTests(TestCase):
         got = self._library()
         row = next(x for x in got["characters"] if x["id"] == str(c.id))
         self.assertEqual([v["title"] for v in row["variants"]],
-                         [characters_service.DEFAULT_TITLE])
+                         [characters_service.default_title()])
 
     def test_deleting_one_of_several_leaves_the_rest_alone(self):
         c = self._character(variants=3)
@@ -94,14 +94,14 @@ class ACharacterAlwaysHasAVariantTests(TestCase):
         c = Character.objects.create(folder=self.folder, name="无变体", position=2)
         self.assertEqual(self._variants(c), [])
         self._library()
-        self.assertEqual(self._variants(c), [characters_service.DEFAULT_TITLE])
+        self.assertEqual(self._variants(c), [characters_service.default_title()])
 
     def test_it_is_repaired_for_a_conversation_that_inherits_it(self):
         """The other read path: a child folder looking at an ancestor's."""
         child = Folder.objects.create(name="子", parent=self.folder)
         c = Character.objects.create(folder=self.folder, name="继承来的", position=3)
         self.client.get(f"/api/folders/{child.id}/library")
-        self.assertEqual(self._variants(c), [characters_service.DEFAULT_TITLE])
+        self.assertEqual(self._variants(c), [characters_service.default_title()])
 
     def test_a_library_proposal_cannot_leave_one_empty_either(self):
         conv = self.client.post(
@@ -124,7 +124,7 @@ class ACharacterAlwaysHasAVariantTests(TestCase):
         self.assertEqual(r.status_code, 200)
         made = Character.objects.get(folder=self.folder, name="提案来的")
         self._library()
-        self.assertEqual(self._variants(made), [characters_service.DEFAULT_TITLE])
+        self.assertEqual(self._variants(made), [characters_service.default_title()])
 
     # ------------------------------------------------- order and repetition
 
@@ -143,13 +143,13 @@ class ACharacterAlwaysHasAVariantTests(TestCase):
         )
         self.assertEqual((r1.status_code, r2.status_code), (200, 200),
                          "a delete that looked available was refused")
-        self.assertEqual(self._variants(c), [characters_service.DEFAULT_TITLE])
+        self.assertEqual(self._variants(c), [characters_service.default_title()])
 
     def test_repairing_twice_does_not_make_two(self):
         c = Character.objects.create(folder=self.folder, name="两次", position=4)
         characters_service.repair(c)
         characters_service.repair(c)
-        self.assertEqual(self._variants(c), [characters_service.DEFAULT_TITLE])
+        self.assertEqual(self._variants(c), [characters_service.default_title()])
 
     def test_repairing_leaves_a_character_that_is_fine_alone(self):
         c = self._character(variants=2)
@@ -163,4 +163,4 @@ class ACharacterAlwaysHasAVariantTests(TestCase):
             characters_service.repair(Character.objects.filter(folder=self.folder)), 2
         )
         for c in (one, two):
-            self.assertEqual(self._variants(c), [characters_service.DEFAULT_TITLE])
+            self.assertEqual(self._variants(c), [characters_service.default_title()])

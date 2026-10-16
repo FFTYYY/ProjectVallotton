@@ -9,8 +9,6 @@ import { RightSidebar } from "./RightSidebar";
 import { SettingChips, useHasSettingChips } from "./SettingChips";
 import { t } from "../uiText";
 
-const SUGGESTIONS = t.suggestions;
-
 export function EmptyState() {
   const createConversation = useChat((s) => s.createConversation);
   const sendMessage = useChat((s) => s.sendMessage);
@@ -56,7 +54,7 @@ export function EmptyState() {
           {t.emptyStateLede}
         </p>
         <div className="suggestions">
-          {SUGGESTIONS.map((s) => (
+          {t.suggestions.map((s) => (
             <button key={s} className="suggestion-chip" onClick={() => setPreset(s)}>
               {s}
             </button>

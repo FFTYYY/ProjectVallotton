@@ -5,12 +5,21 @@
     <link rel="icon" href="/icons/icon-192.png" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
-    <meta name="theme-color" content="#eff2f8" />
+    <meta name="theme-color" content="#151a24" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>Vallotton</title>
-    <script type="module" crossorigin src="/assets/index-BgqiIeJc.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DVYo-XR5.css">
+    <script>
+      // The stored theme (or the default), painted before the first frame so
+      // the page does not open in the other theme. The key and the default
+      // are src/theme/theme.ts's; tests/theme/theme.test.ts holds this script
+      // to that registry.
+      var theme = "dark";
+      try { theme = localStorage.getItem("vallotton.theme") || theme; } catch (e) {}
+      document.documentElement.setAttribute("data-theme", theme);
+    </script>
+    <script type="module" crossorigin src="/assets/index-H7ujgNuh.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BW3bmzFQ.css">
   <link rel="manifest" href="/manifest.webmanifest"></head>
   <body>
     <div id="root"></div>

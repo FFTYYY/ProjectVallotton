@@ -10,9 +10,18 @@
    Rules:     no gradients, no frosted glass, no pill buttons, no drop shadow
               except one soft lift for true overlays. Radii are 2/4px; 999px
               is reserved for the arch. Motion is colour and opacity only.
+
+   Themes:    `:root` is the light plate. A theme is a second block keyed on
+              `html[data-theme="<id>"]` that redefines the colour tokens and
+              nothing else: every rule in every module is painted from
+              tokens, so a theme never touches a component. The choice is
+              written on <html> by src/theme/theme.ts (dark unless the
+              browser remembers otherwise); the ids are its registry's. To
+              add a theme, add a block.
    ========================================================================== */
 
 :root {
+  color-scheme: light;
   /* ---- the one theme colour: cobalt-periwinkle, mixed like paint -------- */
   --theme:         #4166b8;
   --accent:        var(--theme);
@@ -79,6 +88,9 @@
   --ink:          #161c29;    /* 14.3:1 — body, headings */
   --ink-2:        #454e60;    /* 7.0:1  — ink-soft: secondary type */
   --ink-3:        #626b7f;    /* 4.5:1  — captions, placeholders, icons */
+  --on-ink:       #eef1f8;    /* type on a ground of --ink: the toast */
+  /* what dims the page under an overlay */
+  --scrim:        rgba(31, 38, 51, 0.32);
 
   /* ---- hairlines -------------------------------------------------------- */
   --rule:        #ced7e9;
@@ -95,9 +107,24 @@
   --border-strong: var(--rule-strong);
 
   /* ---- semantic: same lightness as the theme, hue rotated --------------- */
-  --danger:      #b0574a;
-  --danger-soft: #f3e6e3;
-  --ok:          #4a8a63;
+  --danger:        #b0574a;
+  --danger-strong: #9c4d41;   /* a solid danger button, pressed */
+  --danger-soft:   #f3e6e3;
+  --ok:            #4a8a63;
+
+  /* ---- the phone's right-hand sheet: the ladder re-hung from --sheet ----
+     rightbar.css redeclares the surface and hairline tokens inside the sheet
+     from these, so what sits on the sheet keeps its step above it. */
+  --sheet-surface:            #c7d2eb;
+  --sheet-surface-soft:       #bbc8e2;
+  --sheet-surface-soft-hover: #b3c0db;
+  --sheet-surface-2:          #cad4ea;
+  --sheet-rule:               #bcc8e2;
+  --sheet-rule-rail:          #b1bfdf;
+  --sheet-rule-strong:        #a4b2d3;
+  --sheet-wash:               #ccd5ea;
+  --sheet-accent-softer:      #cad5ed;
+  --sheet-lift: 0 -10px 26px -20px rgba(31, 38, 51, 0.4);
 
   /* ---- shape ------------------------------------------------------------ */
   --r-1: 2px;
@@ -116,6 +143,13 @@
     Georgia, serif;
   --font-serif: "Source Serif 4", "Noto Serif SC", "Songti SC", "STSong", Georgia,
     serif;
+  /* the conversation's own face when the app speaks English: a text serif
+     against the sans of the controls, the way a printed page sets its body
+     apart from its apparatus. Chinese stays in the sans throughout — a CJK
+     serif would have to be shipped, and the system ones read poorly on a
+     screen — so this is applied per language, keyed on <html lang>
+     (chat.css, "type per language"). */
+  --font-prose: "Source Serif 4", Georgia, "Noto Serif SC", "PingFang SC", "Microsoft YaHei", serif;
   --font-mono: "JetBrains Mono", "IBM Plex Mono", "SF Mono", Consolas, monospace;
 
   --t-caption: 12px;
@@ -134,4 +168,71 @@
 
 @media (prefers-reduced-motion: reduce) {
   :root { --fast: 0ms; --base: 0ms; --slow: 0ms; }
+}
+
+/* ==========================================================================
+   Dark: the same plate after dark.
+
+   The same idea held the other way up: the plate is the deepest ground and
+   elevation is a step LIGHTER into the theme colour plus a hairline, never a
+   bleach toward grey. The accent comes up to a periwinkle that reads on
+   navy, and the type on it goes dark, which is what --on-accent is for. The
+   ladder keeps its gaps — the rails a step off the plate, the sheet two,
+   the fields deeper than the card they sit in — so everything that was
+   legible by contrast is still legible by the same contrast.
+   ========================================================================== */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --theme:         #7f9ee3;
+  --accent-strong: #93aeea;
+  --accent-deep:   #b4c6f2;
+  --tint:          #3b4b74;
+  --tint-soft:     #2b3651;
+  --wash:          #26324a;
+  --accent-softer: #232d42;
+
+  --paper:        #151a24;
+  --rail:         #1a2030;
+  --surface:      #1f2738;
+  --sheet:        #26304a;
+  --sheet-edge:   #46547a;
+  --surface-soft:       #273145;
+  --surface-soft-hover: #2d3850;
+  --field-soft:         #303b52;
+  --field-soft-hover:   #36425c;
+  --surface-2:    #222b3c;
+  --on-accent:    #10151f;
+  --ink:          #e8ecf5;
+  --ink-2:        #b9c1d2;
+  --ink-3:        #8f99ae;
+  --on-ink:       #151a24;
+  --scrim:        rgba(0, 0, 0, 0.55);
+
+  --rule:        #2a3243;
+  --rule-strong: #3d4860;
+  --rule-rail:   #2f394d;
+  --brass:       #c9a66b;
+  --brass-deep:  #d9bf8f;
+  --own:         #5fb3bd;
+  --own-deep:    #9ad8df;
+  --own-soft:    #1e3a3e;
+
+  --danger:        #e08b7c;
+  --danger-strong: #ea9e90;
+  --danger-soft:   #3a2522;
+  --ok:            #7fc38f;
+
+  --sheet-surface:            #2b3650;
+  --sheet-surface-soft:       #323e59;
+  --sheet-surface-soft-hover: #394663;
+  --sheet-surface-2:          #2e3952;
+  --sheet-rule:               #3a465f;
+  --sheet-rule-rail:          #3f4c67;
+  --sheet-rule-strong:        #4d5b78;
+  --sheet-wash:               #33405c;
+  --sheet-accent-softer:      #303c57;
+  --sheet-lift: 0 -10px 26px -20px rgba(0, 0, 0, 0.8);
+
+  --lift: 0 14px 34px -18px rgba(0, 0, 0, 0.75);
 }

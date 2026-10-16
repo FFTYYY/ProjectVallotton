@@ -18,20 +18,17 @@ export const MAX_CONTINUOUS_ROUNDS = 20;
 /** 低 / 中 / 高. What each costs is the backend's to know. */
 export type Quality = "low" | "mid" | "high";
 export const QUALITIES: Quality[] = ["low", "mid", "high"];
-export const QUALITY_LABEL: Record<Quality, string> = {
-  low: t.qualityLow,
-  mid: t.qualityMid,
-  high: t.qualityHigh,
-};
+/** the word for a quality, in the language chosen now (read when shown, not at import) */
+export function qualityLabel(q: Quality): string {
+  return { low: t.qualityLow, mid: t.qualityMid, high: t.qualityHigh }[q];
+}
 
 /** 关闭 / 仅修改 / 全部 —— what the app may approve without asking. */
 export type AutoLibrary = "off" | "edits" | "all";
 export const AUTO_LIBRARY: AutoLibrary[] = ["off", "edits", "all"];
-export const AUTO_LIBRARY_LABEL: Record<AutoLibrary, string> = {
-  off: t.autoOff,
-  edits: t.autoEdits,
-  all: t.autoAll,
-};
+export function autoLibraryLabel(m: AutoLibrary): string {
+  return { off: t.autoOff, edits: t.autoEdits, all: t.autoAll }[m];
+}
 
 export interface Values {
   nImages: number; // images per generation, 1..4

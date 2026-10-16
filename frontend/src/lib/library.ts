@@ -1,3 +1,5 @@
+import { t } from "../uiText";
+
 /**
  * What a library entry contributes, as one block of text.
  *
@@ -30,7 +32,7 @@ export function ownLayer(e: { conversation_id?: string | null; layer?: string })
 export function describeCharacter(c: CharacterLike): string {
   const parts = [c.description?.trim()].filter(Boolean) as string[];
   for (const v of c.variants) {
-    if (v.content?.trim()) parts.push(`【${v.title}】${v.content.trim()}`);
+    if (v.content?.trim()) parts.push(t.variantBlock(v.title, v.content.trim()));
   }
   return parts.join("\n\n");
 }

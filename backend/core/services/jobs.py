@@ -19,7 +19,7 @@ from django.db import close_old_connections
 from django.utils import timezone
 
 from core.models import Message
-from core import ui_text
+from core import i18n, ui_text
 
 from . import continuous, library_lines, pipeline, providers
 
@@ -27,9 +27,12 @@ log = logging.getLogger(__name__)
 
 
 def _wrap(fn, message_id) -> None:
+    # a thread starts with no language scope of its own; one per turn means
+    # the turn's notices all read the choice as it was when the turn began
     try:
         close_old_connections()
-        fn(message_id)
+        with i18n.scope():
+            fn(message_id)
     finally:
         close_old_connections()
 

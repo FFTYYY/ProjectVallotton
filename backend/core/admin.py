@@ -9,7 +9,7 @@ from core.models import (
     Message,
     QuickPhrase,
 )
-from core import ui_text
+from core import ui_text_zh as ui_text  # the admin is served in Chinese, like Django's own
 
 admin.site.site_header = ui_text.ADMIN_SITE_HEADER
 admin.site.site_title = ui_text.APP_NAME

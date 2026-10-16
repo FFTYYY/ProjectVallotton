@@ -6,7 +6,7 @@ import { useChat } from "../store/chat";
 import { useProjects } from "../store/projects";
 import { useGen, useSettings } from "../store/settings";
 import { useUi } from "../store/ui";
-import { AUTO_LIBRARY_LABEL } from "../lib/genSettings";
+import { autoLibraryLabel } from "../lib/genSettings";
 import { describeCharacter, ownLayer } from "../lib/library";
 import { mainPosition } from "../lib/mainPicture";
 import { isWorking } from "../lib/transcript";
@@ -63,7 +63,7 @@ function SelectionChips({ convId }: { convId: string }) {
               <CharacterIcon size={12} />
               {c.name}
               {chosen.length > 0 && (
-                <span className="chip-variant">{chosen.join("、")}</span>
+                <span className="chip-variant">{chosen.join(t.listSep)}</span>
               )}
             </button>
           </Tooltip>
@@ -553,6 +553,6 @@ export function ChatView() {
 function AutoLibraryChip() {
   const mode = useGen().autoLibrary;
   if (mode === "off") return null;
-  return <span className="tag-chip">{t.autoLibraryChip(AUTO_LIBRARY_LABEL[mode])}</span>;
+  return <span className="tag-chip">{t.autoLibraryChip(autoLibraryLabel(mode))}</span>;
 }
 

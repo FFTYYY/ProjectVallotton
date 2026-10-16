@@ -488,16 +488,16 @@
        So the tokens are redeclared here rather than the elements restyled. One
        place, and anything added to this sheet later is carried by it without
        being told. */
-    --surface: #c7d2eb;
-    --surface-soft: #bbc8e2;
-    --surface-soft-hover: #b3c0db;
-    --surface-2: #cad4ea;
-    --rule: #bcc8e2;
-    --rule-rail: #b1bfdf;
-    --rule-strong: #a4b2d3;
-    --wash: #ccd5ea;
-    --accent-softer: #cad5ed;
-    box-shadow: 0 -10px 26px -20px rgba(31, 38, 51, 0.4);
+    --surface: var(--sheet-surface);
+    --surface-soft: var(--sheet-surface-soft);
+    --surface-soft-hover: var(--sheet-surface-soft-hover);
+    --surface-2: var(--sheet-surface-2);
+    --rule: var(--sheet-rule);
+    --rule-rail: var(--sheet-rule-rail);
+    --rule-strong: var(--sheet-rule-strong);
+    --wash: var(--sheet-wash);
+    --accent-softer: var(--sheet-accent-softer);
+    box-shadow: var(--sheet-lift);
     animation: sheet-up var(--base) var(--ease);
   }
   .rightbar.closing { animation: sheet-down var(--fast) var(--ease) forwards; }

@@ -1,5 +1,6 @@
 """
-The settings page: what a new conversation starts from, and how things stand.
+The settings page: what a new conversation starts from, which language the
+app speaks, and how things stand.
 
 Everything here is app-wide. A conversation's own settings live on the
 conversation and are edited from the right rail; this is only the shape a new
@@ -16,7 +17,7 @@ from django.views.decorators.http import require_http_methods
 from core.http import api_login_required, json_err, json_ok
 from core.models import Conversation, Message
 from core.services import gensettings, providers
-from core import ui_text
+from core import i18n, ui_text
 
 
 def _running() -> dict:
@@ -50,12 +51,23 @@ def app_settings(request):
         except json.JSONDecodeError:
             return json_err(ui_text.BAD_JSON)
         patch = body.get("gen_defaults")
-        if not isinstance(patch, dict):
+        language = body.get("language")
+        if "gen_defaults" not in body and "language" not in body:
+            return json_err(ui_text.NOTHING_TO_UPDATE)
+        if "gen_defaults" in body and not isinstance(patch, dict):
             return json_err(ui_text.GEN_DEFAULTS_NOT_OBJECT)
-        gensettings.set_defaults(patch)
+        if "language" in body and not i18n.is_known(language):
+            return json_err(ui_text.LANGUAGE_UNKNOWN.format(codes=", ".join(i18n.CODES)))
+        if isinstance(patch, dict):
+            gensettings.set_defaults(patch)
+        if isinstance(language, str):
+            # last, so the reply below (and any error above) is in the
+            # language the request arrived in
+            i18n.set_language(language)
 
     return json_ok(
         {
+            "language": i18n.current(),
             "gen_defaults": gensettings.defaults(),
             "running": _running(),
             "roads": providers.active().roads_status(),

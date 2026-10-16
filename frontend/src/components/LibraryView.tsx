@@ -13,7 +13,7 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import type { Character, Setting, Variant, TagLine } from "../api/types";
 import { confirmArchive } from "../lib/archive";
-import { STALE_HINT, STALE_POLL_MS, anyStale } from "../lib/linesStale";
+import { STALE_POLL_MS, anyStale, staleHint } from "../lib/linesStale";
 import { confirm } from "../store/confirm";
 import { useProjects } from "../store/projects";
 import { Collapse } from "./Collapse";
@@ -105,7 +105,7 @@ function Field({
 /** the lines are behind the text; they catch up on their own */
 function StaleMark() {
   return (
-    <span className="lib-stale" role="img" aria-label={STALE_HINT} title={STALE_HINT}>
+    <span className="lib-stale" role="img" aria-label={staleHint()} title={staleHint()}>
       <SyncIcon size={12} />
     </span>
   );

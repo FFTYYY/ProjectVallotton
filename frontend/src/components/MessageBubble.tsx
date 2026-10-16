@@ -256,7 +256,7 @@ function UsedLibrary({ message }: { message: Message }) {
       </button>
       {!open &&
         characters.map((c) => (
-          <Tooltip key={c.id} content={linesOf(c.name).length ? linesOf(c.name).join("、") : describeCharacter(c)}>
+          <Tooltip key={c.id} content={linesOf(c.name).length ? linesOf(c.name).join(t.listSep) : describeCharacter(c)}>
             <span className={`used-chip${ownLayer(c) ? " own" : ""}`}>
               <CharacterIcon size={11} />
               {c.name}
@@ -264,7 +264,7 @@ function UsedLibrary({ message }: { message: Message }) {
                 <span className="chip-variant">{t.linesUsed(linesOf(c.name).length)}</span>
               ) : c.variants.length > 0 && (
                 <span className="chip-variant">
-                  {c.variants.map((v) => v.title).join("、")}
+                  {c.variants.map((v) => v.title).join(t.listSep)}
                 </span>
               )}
             </span>
@@ -272,7 +272,7 @@ function UsedLibrary({ message }: { message: Message }) {
         ))}
       {!open &&
         settings.map((s) => (
-          <Tooltip key={s.id} content={linesOf(s.title).length ? linesOf(s.title).join("、") : (s.content ?? "")}>
+          <Tooltip key={s.id} content={linesOf(s.title).length ? linesOf(s.title).join(t.listSep) : (s.content ?? "")}>
             <span className={`used-chip setting${ownLayer(s) ? " own" : ""}`}>
               <SettingEntryIcon size={11} />
               {s.title}
@@ -575,7 +575,7 @@ export function MessageBubble({ message: m, isLastAssistant, onOpenImage }: Bubb
           <ReflectionNote rounds={m.reflection_log} />
         )}
         {!pending && !!m.paint_errors?.length && (
-          <div className="thinking warn">{m.paint_errors.join("；")}</div>
+          <div className="thinking warn">{m.paint_errors.join(t.noteSep)}</div>
         )}
         {!pending && <UsedLibrary message={m} />}
 

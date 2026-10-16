@@ -12,6 +12,7 @@ from django.http import HttpRequest, JsonResponse
 from core.services import gensettings, prompt as prompt_slots
 from core.models import Attachment, Conversation, Folder, Message
 from core import ui_text
+from core.services import notices
 
 
 def json_ok(data: dict | list, status: int = 200) -> JsonResponse:
@@ -107,7 +108,7 @@ def message_to_dict(msg: Message) -> dict:
         "archived": msg.archived,
         "kind": msg.kind,
         "phase": msg.phase,
-        "content": msg.content,
+        "content": notices.content_of(msg),
         "error": msg.error,
         "client_msg_id": msg.client_msg_id,
         "nai_prompts": msg.nai_prompts,

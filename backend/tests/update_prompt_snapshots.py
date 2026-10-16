@@ -21,10 +21,11 @@ django.setup()
 
 from django.test import override_settings  # noqa: E402
 
-from core import prompts  # noqa: E402
+from core import i18n, prompts  # noqa: E402
 from tests.tests_prompt_scenario import ORIGINAL_DRAW, ORIGINAL_LEAD  # noqa: E402
 
-with override_settings(LEAD_USAGE_SCENARIO=ORIGINAL_LEAD, DRAW_USAGE_SCENARIO=ORIGINAL_DRAW):
+# in Chinese, whatever the development database has chosen
+with override_settings(LEAD_USAGE_SCENARIO=ORIGINAL_LEAD, DRAW_USAGE_SCENARIO=ORIGINAL_DRAW), i18n.use("zh"):
     for name, text in (("lead", prompts.lead()), ("drawing", prompts.drawing()),
                        ("drawing_edit", prompts.drawing() + "\n\n" + prompts.drawing_edit())):
         (HERE / "fixtures" / f"prompt_{name}.txt").write_text(text, encoding="utf-8", newline="\n")

@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quick start · Vallotton</title>
+<meta name="description" content="Run Vallotton on your own computer and paint your first picture.">
+<link rel="icon" href="../assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@500;600&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/toc.js" defer></script>
+</head>
+<body>
+<header class="top"><div class="top-inner">
+  <a class="brand" href="index.html"><img src="../assets/logo.png" alt=""><span class="word">Vallotton</span><span class="sub">Docs</span></a>
+  <nav class="menu">
+    <a href="index.html">Overview</a>
+    <a class="active" href="quickstart.html">Quick start</a>
+    <a href="guide.html">User guide</a>
+    <a href="deploy.html">Deployment</a>
+    <a class="lang" href="../quickstart.html" lang="zh-CN">中文</a>
+  </nav>
+</div></header>
+
+<main class="page">
+<aside class="toc"><div class="toc-fixed">
+  <div class="toc-site">
+    <div class="toc-title">Docs</div>
+    <a class="page-link" href="index.html">Overview</a>
+    <a class="page-link current" href="quickstart.html">Quick start</a>
+    <a class="page-link" href="guide.html">User guide</a>
+    <a class="page-link" href="deploy.html">Deployment</a>
+  </div>
+  <div class="toc-title">On this page</div>
+  <div class="toc-page">
+    <a href="#prep">What you need</a>
+    <a class="l2" href="#accounts">Two accounts</a>
+    <a class="l2" href="#software">Do I need to install anything?</a>
+    <a href="#start">Download and start</a>
+    <a class="l2" href="#first-run">The four questions of the first run</a>
+    <a class="l2" href="#dashboard">How to tell it started</a>
+    <a href="#login">Log in</a>
+    <a href="#first-picture">Paint the first picture</a>
+    <a href="#edit">Change something</a>
+    <a href="#remember">Vallotton remembers</a>
+    <a href="#look">Language and theme</a>
+    <a href="#stop">Stopping, and next time</a>
+    <a href="#trouble">If something goes wrong</a>
+    <a href="#next">What next</a>
+  </div>
+</div></aside>
+
+<article>
+<h1>Quick start</h1>
+<p class="lede">This chapter is a step-by-step tutorial for the first time: get Vallotton running on your own computer and paint your first picture. It uses the portable start script that ships with the code, so there is almost nothing to set up by hand.</p>
+
+<h2 id="prep">What you need</h2>
+
+<h3 id="accounts">Two accounts</h3>
+<p>As the <a href="index.html">overview</a> says more than once, Vallotton is a workflow that joins DeepSeek (or another LLM service) to NovelAI V5. Both are paid online services. You need an account with each, and from each account a key to give to Vallotton.</p>
+<div class="wrap"><table style="--first-col: 6em">
+<tr><th>Service</th><th>What it does</th><th>How to get the key</th></tr>
+<tr><td>NovelAI</td><td>Paints the pictures. Needs a subscription, paid monthly.</td><td>Log in at <a href="https://novelai.net/">novelai.net</a>, open the user settings, go to the “Account” tab and find the “Get Persistent API Token” button. Clicking it shows a string starting with <code>pst-</code>; that is your NovelAI key. <b>Once the dialog is closed the string is never shown again</b>, so copy it somewhere safe first.</td></tr>
+<tr><td>DeepSeek</td><td>Understands what you say, plans what to paint and how to change it.</td><td>Open <a href="https://platform.deepseek.com/">platform.deepseek.com</a> and register. Put a little credit on the account first (a few dollars lasts a long time), then create a key on the “API keys” page; you get a string starting with <code>sk-</code>. It is also shown only once, so copy it first.</td></tr>
+</table></div>
+<div class="note"><p><b>Roughly what it costs:</b> NovelAI is a fixed monthly fee, and painting at the default quality costs nothing extra while the subscription lasts. DeepSeek is pay-as-you-go, around a cent per picture. Vallotton's settings page shows how much is left on each side.</p></div>
+
+<h3 id="software">Do I need to install anything?</h3>
+<p>Vallotton's backend is written in Python. The start script downloads and prepares the Python environment it needs by itself. Only if that automatic setup fails might you have to install Python by hand.</p>
+<p>(If your computer already has Python, the script will not disturb it. The Python that Vallotton sets up is used only inside this project and never touches the system.)</p>
+
+<h2 id="start">Download and start</h2>
+<p>First download the code from <a href="https://github.com/FFTYYY/ProjectVallotton">GitHub</a>. Then:</p>
+<ul>
+  <li><b>Windows</b>: open a command prompt in the Vallotton folder and run <code>start.bat --lang en</code>. (Double-clicking <code>start.bat</code> works too, but the terminal then speaks Chinese; the flag is what makes it speak English.)</li>
+  <li><b>macOS / Linux</b>: open a terminal, go into the Vallotton folder and run <code>./start.sh --lang en</code> (if the first run says permission denied, run <code>chmod +x start.sh</code> first).</li>
+</ul>
+<p>The start script does the following, in order:</p>
+<ol>
+  <li>On the first run it prepares Python: if the computer already has Python 3.12 or newer, it uses that; otherwise it downloads a copy. Either way everything goes into the <code>.runtime</code> folder inside the Vallotton folder. This usually takes under a minute.</li>
+  <li>It checks that every component it needs is present.</li>
+  <li>If the environment file does not exist yet, it creates one by asking you a few questions.</li>
+  <li>It loads the environment file, starts the program and opens your browser.</li>
+</ol>
+
+<h3 id="first-run">The environment file</h3>
+<p>On the first run the script has to create the environment file, which means answering these four questions:</p>
+<div class="wrap"><table>
+<tr><th>Question</th><th>What to enter</th></tr>
+<tr><td>DeepSeek API key</td><td>The string starting with <code>sk-</code> you got from DeepSeek above.</td></tr>
+<tr><td>NovelAI persistent token</td><td>The string starting with <code>pst-</code> you got from NovelAI above.</td></tr>
+<tr><td>Web login username</td><td>The name you will log in to the Vallotton web page with. Press Enter to use the default, “user”.</td></tr>
+<tr><td>Web login password</td><td>The password for the web page. Choose one, type it and press Enter.</td></tr>
+</table></div>
+<p>When you have answered, the script saves everything to the <code>.env</code> file in the Vallotton folder and never asks again. If you change a key or want a new password later, open that file in a text editor, change the line, and start again.</p>
+
+<h3 id="dashboard">The status panel</h3>
+<p>If all goes well, your browser opens on a login page (if it does not, open <code>http://localhost:8000</code> yourself), and the command window turns into a status panel that looks roughly like this:</p>
+<figure><img class="shot" src="../assets/shots/en/dashboard.png" alt="The status panel after a successful start: the word VALLOTTON and the web address at the top, then the services, the accounts, the activity and the recent problems. The address, the services and the accounts are marked with orange boxes" loading="lazy"><figcaption>The status panel after a successful start.</figcaption></figure>
+<p>How to read it:</p>
+<ul>
+  <li>Under <b>Services</b>, both lines green means the program is running.</li>
+  <li>Under <b>Accounts</b>, the NovelAI line saying “valid” and the balance line showing a number means both keys are right. A red line means that key has a problem; see <a href="#trouble">if something goes wrong</a>.</li>
+  <li>The address after <b>Open</b> is Vallotton's web address. If the browser did not open by itself, paste it into the address bar. Pressing <kbd>o</kbd> in the panel opens it too.</li>
+</ul>
+<p>Keep this command window open for as long as Vallotton is running.</p>
+
+<h2 id="login">Log in</h2>
+<p>On the page the browser opened, enter the username and password you chose and press Log in. Vallotton is single-user for now: it accepts only the account created in the environment file, so there is no need (and no way) to share one installation with other people.</p>
+<figure><img class="shot" src="../assets/shots/en/login.png" alt="Vallotton's login page: a username field and a password field" loading="lazy"><figcaption>The login page. The username and password are the ones you chose in <a href="#first-run">the environment file</a>.</figcaption></figure>
+
+<h2 id="first-picture">Paint the first picture</h2>
+<figure><img class="shot" src="../assets/shots/en/empty.png" alt="The welcome page after logging in: Vallotton's portrait and a few example lines in the middle, the composer at the bottom, generation settings on the right" loading="lazy"><figcaption>The welcome page after logging in. The lines in the middle are ready-made examples. The composer is at the bottom.</figcaption></figure>
+<p>After logging in you see an empty welcome page that says “A fresh start. What shall we draw?”, with a few ready-made examples under it. Click one of them, or type a line of your own in the composer at the bottom of the page, for example:</p>
+<pre><code>Draw a white-haired girl holding an umbrella on a rooftop in the night rain</code></pre>
+<p>Press Enter to send it.</p>
+
+<p>Now wait a while. The page shows what Vallotton is actually doing. “Thinking it over” is the language model planning the picture, “weighing the words” is it translating the picture into a prompt NovelAI understands, and “putting brush to paper” is NovelAI painting. The first picture usually takes one to three minutes, most of it the model thinking.</p>
+<figure><img class="shot" src="../assets/shots/en/working.png" alt="The conversation page while working, showing “Miss Vallotton is thinking it over…”" loading="lazy"><figcaption>After sending, this line changes as the work progresses.</figcaption></figure>
+<p>When it is done, the picture appears in the reply. A few things worth noticing:</p>
+<ul>
+  <li>Above the picture is a small line starting with <b>#</b>: the id of this drawing. You can refer to the picture by it, for example “change the style of #114514”.</li>
+  <li>Under the picture, <b>Materials used</b> lists what the picture took from the library. The library is explained <a href="#remember">further down</a>.</li>
+  <li>Under the picture are a few buttons. <b>Redraw</b> paints again with the same NovelAI prompts; <b>Rerun</b> runs the whole process again; <b>Branch</b> starts a new conversation from this message; <b>Inspect</b> shows every detail of this round.</li>
+</ul>
+<figure><img class="shot" src="../assets/shots/en/picture-parts.jpg" alt="The first finished picture: a white-haired girl with a transparent umbrella on a rooftop in the night rain. The drawing id, the reflection result, the materials used, the prompts, the time and the five buttons are each marked with an orange box" loading="lazy"><figcaption>The first picture, finished. Above it is the drawing id; under it, in order: what Vallotton's own reflection found, the materials used, the prompts sent to NovelAI (folded by default), the time, and the five buttons: redraw, copy, branch, rerun, inspect.</figcaption></figure>
+
+<h2 id="edit">Change something</h2>
+<p>After the first picture, just keep typing in the composer. A message can ask for a new picture or for a change to one that exists. For example:</p>
+<pre><code>Make the umbrella red, and bring her a little closer to the camera</code></pre>
+<p>Vallotton builds on the previous picture and changes as little as it can beyond what you asked for.</p>
+<figure><img class="shot" src="../assets/shots/en/edit.jpg" alt="The edited picture: the umbrella is red and the girl is closer to the camera; the rooftop night scene is unchanged" loading="lazy"><figcaption>After the change: the umbrella is red and she is closer, while the rooftop, the rain and the light stay the same. Above the picture it says “Edited from” and the previous picture's id.</figcaption></figure>
+
+<h2 id="remember">Vallotton remembers</h2>
+<p>When a character appears in a picture, Vallotton writes her into this conversation's library on its own: what she looks like, her hair colour, every piece of clothing, each as a line of its own. Whenever she is painted again in this conversation, she is painted from those notes. This is how the same character stays the same from picture to picture.</p>
+<p>Besides characters, Vallotton also writes down the style this conversation uses, scenes that recur, and anything that stays true throughout (“it is always raining”), so a set of pictures does not change style from one to the next.</p>
+<p>What has been remembered shows as chips above the composer. Rest the mouse on a chip (tap it on a phone) to see what it holds.</p>
+<figure><img class="shot" src="../assets/shots/en/chips-hover.png" alt="The chips above the composer, with the mouse resting on the character chip; the bubble shows her description and her outfit" loading="lazy"><figcaption>The chips above the composer. Vallotton has remembered the character and her outfit, and a style.</figcaption></figure>
+<p>An entry made in one conversation (a character, say) belongs to that conversation. To use her in other conversations too, save the entry to the project from the right bar. The <a href="guide.html#library">library</a> section of the user guide explains this in detail; the quick start leaves it aside.</p>
+
+<h2 id="look">Language and theme</h2>
+<p>Next to the username at the bottom left are three buttons: switch the language (中文 or English), switch the theme (dark or light), and log out. The language belongs to the account, so it is the same wherever you log in; the theme belongs to the browser, so each device remembers its own. On a phone the two switches are on the first row of the settings page.</p>
+<figure><img class="shot" src="../assets/shots/en/light.jpg" alt="The main screen in the light theme, with the three buttons at the bottom left marked with an orange box" loading="lazy"><figcaption>The light theme (dark is the default). The three buttons at the bottom left switch the language, switch the theme and log out.</figcaption></figure>
+
+<h2 id="stop">Stopping, and next time</h2>
+At some point you will want to stop. You can close the local Vallotton service; the environment file and all your data stay where they are, and starting the service again next time carries on from there.
+<ul>
+  <li><b>Stop</b>: go back to the command window with the status panel and press <kbd>q</kbd> (<kbd>Ctrl+C</kbd> works too).</li>
+  <li><b>Start again</b>: exactly as the first time, run <code>start.bat --lang en</code> (<code>./start.sh --lang en</code> on macOS / Linux). As long as the <code>.env</code> file is still there, nothing has to be set up again. Conversations, pictures and the library are all kept.</li>
+  <li><b>Where things are</b>: with the start script, everything lives inside the Vallotton folder. Conversations are in the file <code>tmp/dev.sqlite3</code>, pictures in the folder <code>tmp/media</code>, keys and passwords in <code>.env</code>.</li>
+  <li>Closing the browser or the tab does not stop the service, nor interrupt a picture being painted; only closing the command window does.</li>
+</ul>
+
+<h2 id="trouble">If something goes wrong</h2>
+<p>A short checklist.</p>
+<div class="wrap"><table>
+<tr><th>What you see</th><th>Cause and what to do</th></tr>
+<tr><td>The first run hangs on a download, or says “Could not download Python”</td><td>When the computer has no Python 3.12 or newer, the first run downloads about 40 MB. If there is no connection, or a proxy is needed, get the network or the proxy working first and run again. If a download broke off halfway, delete the <code>.runtime</code> folder inside the Vallotton folder and run again.</td></tr>
+<tr><td>It says port 8000 is in use</td><td>The backend started by the start script listens on port 8000. This message means another program on the computer is using it. Start with a different port on the command line, for example 8020: <code>start.bat --lang en --api-port 8020</code> on Windows, <code>./start.sh --lang en --api-port 8020</code> on macOS / Linux. The web address then becomes <code>http://localhost:8020</code>.</td></tr>
+<tr><td>The NovelAI line in the panel is red</td><td>The NovelAI key is wrong, or the subscription has run out. Open the <code>.env</code> file in the Vallotton folder in a text editor, replace what follows <code>NOVELAI_API_KEY=</code> with the right key, save, and start again.</td></tr>
+<tr><td>The model's balance in the panel reads “unknown”, or a message stays at “thinking it over” for ever</td><td>The DeepSeek key is wrong, the account has no credit, or the computer cannot reach DeepSeek's servers. Check the key and the balance at platform.deepseek.com first; if the key is wrong, change the <code>DEEPSEEK_API_KEY=</code> line in <code>.env</code>.</td></tr>
+<tr><td>Painting fails and the error mentions “402”</td><td>The NovelAI account's points (Anlas) are used up, usually because the quality was set to “High”. In the generation settings on the right of the page, set the quality back to “Mid”.</td></tr>
+<tr><td>The bottom right of the page says NovelAI “status unknown”</td><td>The endpoint that reports the NovelAI account's status is unreachable now and then. It does not affect painting and recovers by itself in a few minutes.</td></tr>
+<tr><td>You want a detailed log</td><td>The files <code>tmp/quickstart-后端.log</code> (backend) and <code>tmp/quickstart-前端.log</code> (frontend) in the Vallotton folder hold the complete record.</td></tr>
+</table></div>
+
+<h2 id="next">What next</h2>
+<ul>
+  <li><a href="guide.html">User guide</a>: how to use everything, with the terms explained and a short account of how it works inside.</li>
+  <li><a href="deploy.html">Deployment</a>: if you want Vallotton running all the time, reachable from any device including your phone, it needs to live on a server. That chapter is the full walkthrough.</li>
+</ul>
+
+<div class="pager"><a href="index.html">← Overview</a><a href="guide.html">User guide →</a></div>
+</article>
+</main>
+<footer class="foot">
+  <span>Vallotton · AI drawing studio</span>
+  <a href="quickstart.html">Quick start</a>
+  <a href="guide.html">User guide</a>
+  <a href="deploy.html">Deployment</a>
+</footer>
+</body>
+</html>

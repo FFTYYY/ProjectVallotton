@@ -280,21 +280,21 @@ export function InspectDialog({ messageId, onClose }: { messageId: string; onClo
                 <div className="inspect-note warn">{t.tagIndexMissing}</div>
               )}
               {!!data.paint_errors?.length && (
-                <div className="inspect-note warn">{data.paint_errors.join("；")}</div>
+                <div className="inspect-note warn">{data.paint_errors.join(t.noteSep)}</div>
               )}
               {!!data.edit_notes?.length && (
-                <div className="inspect-note warn">{data.edit_notes.join("；")}</div>
+                <div className="inspect-note warn">{data.edit_notes.join(t.noteSep)}</div>
               )}
               {!!data.unknown_tags?.length && (
                 <div className="inspect-note warn">
                   {t.unknownTags(data.unknown_tags.length)}
-                  {data.unknown_tags.join("、")}
+                  {data.unknown_tags.join(t.listSep)}
                 </div>
               )}
               <Block title={t.drawPicture} value={data.picture} />
               <Block title={t.drawPatch} value={data.patch} />
               {!!data.notes?.length && (
-                <div className="inspect-note warn">{data.notes.join("；")}</div>
+                <div className="inspect-note warn">{data.notes.join(t.noteSep)}</div>
               )}
               <Block
                 title={t.leadLookups(data.lookups?.lead?.length ?? 0)}

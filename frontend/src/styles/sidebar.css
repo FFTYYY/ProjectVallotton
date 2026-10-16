@@ -525,15 +525,24 @@ body.dragging-tree .tree-row { animation: none; }
   border-top: 1px solid var(--rule-rail);
   letter-spacing: 0.04em;
 }
-.logout-btn {
-  font-size: var(--t-caption);
+.sidebar-username { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Beside the username: language, theme, log out. Glyphs on the rail's
+   ground, each lit on hover; log out is red at rest, the one of the three
+   that should never be pressed by reflex. */
+.sidebar-user-actions { display: flex; gap: 2px; margin-right: -7px; flex-shrink: 0; }
+.user-action {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-2);
   color: var(--ink-3);
-  text-decoration: underline;
-  text-decoration-color: var(--rule-strong);
-  text-underline-offset: 0.2em;
-  transition: color var(--fast) var(--ease);
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
 }
-.logout-btn:hover { color: var(--accent); }
+.user-action:hover { color: var(--accent); background: var(--accent-softer); }
+.user-action.danger { color: var(--danger); }
+.user-action.danger:hover { color: var(--on-accent); background: var(--danger); }
 
 @media (max-width: 860px) {
   .sidebar-foot::before { left: 16px; right: 16px; }
@@ -622,6 +631,7 @@ body.dragging-tree .tree-row { animation: none; }
   color: var(--ink-2);
 }
 .settings-row-label { display: inline-flex; align-items: center; gap: 7px; }
+.settings-section .settings-row + .settings-row { margin-top: 8px; }
 .settings-row-label svg { color: var(--ink-3); flex-shrink: 0; }
 .settings-row-value { color: var(--ink); }
 .settings-row-value.on { color: var(--brass-deep); }

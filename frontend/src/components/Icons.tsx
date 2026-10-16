@@ -10,6 +10,9 @@
 import {
   SlidersHorizontal,
   LogOut,
+  Languages,
+  Moon,
+  Sun,
   Activity,
   Archive,
   ArrowDown,
@@ -116,6 +119,9 @@ export const ConversationIcon = wrap(MessageSquare);
 export const SettingEntryIcon = wrap(BookOpen);
 export const GearIcon = wrap(SlidersHorizontal);
 export const LogOutIcon = wrap(LogOut);
+export const LanguagesIcon = wrap(Languages);
+export const MoonIcon = wrap(Moon);
+export const SunIcon = wrap(Sun);
 export const ActivityIcon = wrap(Activity);
 export const CharacterIcon = wrap(UserRound);
 export const CheckIcon = wrap(Check);

@@ -1,6 +1,8 @@
 import { create } from "zustand";
 
 import { api } from "../api/client";
+import { useLanguage } from "../i18n/language";
+import type { LanguageCode } from "../i18n/languages";
 import { inOrder } from "../lib/inOrder";
 import type { GenSettings } from "../api/types";
 import { DEFAULTS, fromWire, toWire, type Values } from "../lib/genSettings";
@@ -8,10 +10,12 @@ import { DEFAULTS, fromWire, toWire, type Values } from "../lib/genSettings";
 /**
  * What belongs to the app rather than to any one conversation.
  *
- * So far: the generation settings a new conversation is poured from, and a
- * count of what the backend is busy with. Both live on the server — a default
- * that only applies in the browser that set it is not a default, and a count
- * of running work is precisely what you open after closing the tab.
+ * The generation settings a new conversation is poured from, the language
+ * the app speaks, and a count of what the backend is busy with. All live on
+ * the server — a default that only applies in the browser that set it is not
+ * a default, and a count of running work is precisely what you open after
+ * closing the tab. The language is held by src/i18n/language.ts once heard;
+ * this store is where it is heard and where a new choice is sent.
  */
 
 interface Running {
@@ -37,6 +41,7 @@ export interface Road {
 }
 
 interface Wire {
+  language: string;
   gen_defaults: GenSettings;
   running: Running;
   roads: Road[];
@@ -63,6 +68,11 @@ interface AppSettingsState {
    * the click.
    */
   reportRoad: (name: string, steppedOver: boolean) => Promise<void>;
+  /**
+   * Speak `code` from now on, here and in every browser that logs in next.
+   * Shown immediately, saved behind it, like a generation default.
+   */
+  chooseLanguage: (code: LanguageCode) => void;
 }
 
 export const useAppSettings = create<AppSettingsState>((set, get) => ({
@@ -86,6 +96,7 @@ export const useAppSettings = create<AppSettingsState>((set, get) => ({
         loaded: true,
         ...(authoritative ? {} : { defaults: fromWire(got.gen_defaults) }),
       });
+      useLanguage.getState().adopt(got.language);
     } catch (err) {
       console.warn("app settings fetch failed", err);
     }
@@ -100,13 +111,29 @@ export const useAppSettings = create<AppSettingsState>((set, get) => ({
     inOrder("app-settings", () =>
       api
         .patch<Wire>("/api/app-settings", { gen_defaults: toWire(patch) })
-        .then((got) =>
+        .then((got) => {
           set({
             defaults: fromWire(got.gen_defaults),
             running: got.running,
             roads: got.roads,
-          }),
-        ),
+          });
+          useLanguage.getState().adopt(got.language);
+        }),
+    );
+  },
+
+  chooseLanguage: (code) => {
+    const lang = useLanguage.getState();
+    lang.choose(code);
+    // in the same queue as the defaults: one row on the server, one order of writes
+    inOrder("app-settings", () =>
+      api.patch<Wire>("/api/app-settings", { language: code }).then(
+        (got) => lang.settle(got.language),
+        (err) => {
+          lang.settle(undefined);
+          throw err;
+        },
+      ),
     );
   },
 

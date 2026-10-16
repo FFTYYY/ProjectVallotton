@@ -6,6 +6,7 @@ real run (tmp/proto/audit_real.py) runs the same lint over every turn.
 
 from django.test import SimpleTestCase
 
+from core import i18n
 from core.services import llm, prompt as prompt_slots
 
 
@@ -31,6 +32,10 @@ LINES = {"林": {"k1": "1girl", "k2": "black hair, long hair", "v1": "white shir
 
 
 class RenderedPromptInvariantsTests(SimpleTestCase):
+    def setUp(self):
+        # the notes lint writes come from ui_text: in Chinese, without a database
+        self.enterContext(i18n.use("zh"))
+
     def test_sentences_and_glue(self):
         self.assertEqual(prompt_slots.sentences(["She stands still.", "the wind lifts her hair", "", " , "]),
                          "She stands still. the wind lifts her hair.")

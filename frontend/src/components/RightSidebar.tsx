@@ -6,7 +6,7 @@ import type {
   SelectionPayload,
 } from "../api/types";
 import { describeCharacter } from "../lib/library";
-import { STALE_HINT, STALE_POLL_MS, anyStale } from "../lib/linesStale";
+import { STALE_POLL_MS, anyStale, staleHint } from "../lib/linesStale";
 import { Collapse } from "./Collapse";
 import { GenerationControls } from "./GenerationControls";
 import { NewPhraseButton, PhraseList } from "./PhraseList";
@@ -166,11 +166,11 @@ function CharacterRow({
           <CharacterIcon size={13} />
           <span className="sel-name">{character.name}</span>
           {(character.lines_stale || character.variants.some((v) => v.lines_stale)) && (
-            <span className="sel-stale" role="img" aria-label={STALE_HINT} title={STALE_HINT}><SyncIcon size={12} /></span>
+            <span className="sel-stale" role="img" aria-label={staleHint()} title={staleHint()}><SyncIcon size={12} /></span>
           )}
           <span className="sel-sub">
             {chosen.length
-              ? chosen.map((v) => v.title).join("、")
+              ? chosen.map((v) => v.title).join(t.listSep)
               : t.variantCountShort(character.variants.length)}
           </span>
           <ChevronDownIcon size={12} className={open ? "open" : ""} />
@@ -341,7 +341,7 @@ function LibrarySection({ conv }: { conv: Conversation }) {
           <SettingEntryIcon size={13} />
           <span className="sel-name">{s.title}</span>
           {s.lines_stale && (
-            <span className="sel-stale" role="img" aria-label={STALE_HINT} title={STALE_HINT}><SyncIcon size={12} /></span>
+            <span className="sel-stale" role="img" aria-label={staleHint()} title={staleHint()}><SyncIcon size={12} /></span>
           )}
         </button>
       </Tooltip>
@@ -445,14 +445,14 @@ function ContextMeter({ convId }: { convId: string }) {
 
   const limit = llm.context_limit;
   const pct = Math.min((used / limit) * 100, 100);
-  const fmt = (n: number) => (n >= 10_000 ? t.tenThousand((n / 10_000).toFixed(1)) : String(n));
+  const fmt = (n: number) => t.tokensShort(n);
 
   return (
     <div className="meta-row">
       <span className="meta-label">{t.context}</span>
       <span className="meta-value muted" title={`${llm.label} · ${llm.model}`}>
         {fmt(used)} / {fmt(limit)}
-        {pct >= 50 ? `（${Math.round(pct)}%）` : ""}
+        {pct >= 50 ? t.percentParen(Math.round(pct)) : ""}
       </span>
     </div>
   );

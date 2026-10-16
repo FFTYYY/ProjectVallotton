@@ -362,7 +362,7 @@ class WorkflowTests(TestCase):
         folder = Folder.objects.create(name="项目")
         conv = self._conv(folder)
         project = Setting.objects.create(folder=folder, title="画风", content="厚涂")
-        own = Setting.objects.create(folder=folder, conversation=conv, title="画风", content="水彩")
+        own = Setting.objects.create(conversation=conv, title="画风", content="水彩")
         conv.selected_settings.add(project, own)
         sel = library.selection_for(conv)
         # the nearer one wins, and only one of them is sent
@@ -376,6 +376,52 @@ class WorkflowTests(TestCase):
         own.refresh_from_db()
         self.assertIsNone(own.conversation_id)
         self.assertEqual(own.folder_id, folder.id)
+
+    def test_a_proposal_cannot_promote_onto_a_project_entry_of_the_same_name(self):
+        """What the 「存到项目」 button refuses, the 「写入资料库」 button refuses
+        too; it used to crash on the layer's unique title."""
+        folder = Folder.objects.create(name="项目")
+        conv = self._conv(folder)
+        Setting.objects.create(folder=folder, title="画风", content="厚涂")
+        own = Setting.objects.create(conversation=conv, title="画风", content="水彩")
+        Character.objects.create(folder=folder, name="林", description="项目里的")
+        mine = Character.objects.create(conversation=conv, name="林", description="对话里的")
+        turn = Message.objects.create(conversation=conv, seq=1, role="assistant", status="done")
+        p = LibraryProposal.objects.create(conversation=conv, folder=folder, message=turn, payload={
+            "settings": [{"title": "画风", "content": "新的", "scope": "project"}],
+            "characters": [{"name": "林", "description": "新的", "scope": "project"}],
+        })
+        r = self.c.post(f"/api/proposals/{p.id}/resolve", json.dumps({"approve": True}),
+                        content_type="application/json")
+        self.assertEqual(r.status_code, 409, r.content[:300])
+        self.assertEqual(r.json()["error"], ui_text.PROPOSAL_NAME_TAKEN.format(name="画风"))
+        p.refresh_from_db()
+        self.assertEqual(p.status, "pending", "still waiting: tidy the project and press again")
+        # nothing moved, nothing doubled, nothing overwritten
+        self.assertEqual(Setting.objects.filter(folder=folder, conversation__isnull=True, title="画风").count(), 1)
+        self.assertEqual(Setting.objects.get(conversation__isnull=True, title="画风").content, "厚涂")
+        own.refresh_from_db()
+        self.assertEqual(own.conversation_id, conv.id)
+        self.assertEqual(Character.objects.filter(folder=folder, conversation__isnull=True, name="林").count(), 1)
+        mine.refresh_from_db()
+        self.assertEqual(mine.conversation_id, conv.id)
+
+    def test_the_project_page_does_not_list_a_conversation_entry_written_inside_it(self):
+        """An entry the lead wrote for a conversation that sits in the project
+        carries the project's folder; the project page used to list and edit
+        it as the project's own, and refuse a project entry of that title."""
+        folder = Folder.objects.create(name="项目")
+        conv = self._conv(folder)
+        Setting.objects.create(conversation=conv, title="雨夜", content="本对话的")
+        Character.objects.create(conversation=conv, name="阿岚")
+        lib = self.c.get(f"/api/folders/{folder.id}/library").json()
+        self.assertEqual([s["title"] for s in lib["settings"]], [])
+        self.assertEqual([c["name"] for c in lib["characters"]], [])
+        r = self.c.post(f"/api/folders/{folder.id}/settings", json.dumps({"title": "雨夜", "content": "项目的"}),
+                        content_type="application/json")
+        self.assertEqual(r.status_code, 201, r.content[:200])
+        lib = self.c.get(f"/api/folders/{folder.id}/library").json()
+        self.assertEqual([(s["title"], s["content"]) for s in lib["settings"]], [("雨夜", "项目的")])
 
     def test_the_selection_lists_both_layers(self):
         folder = Folder.objects.create(name="项目")
@@ -606,7 +652,7 @@ class WorkflowTests(TestCase):
         folder = Folder.objects.create(name="项目")
         conv = self._conv(folder)
         Setting.objects.create(folder=folder, title="黄昏", tags=[{"id": "s1", "part": "天色", "tags": "sunset"}])
-        Setting.objects.create(folder=folder, conversation=conv, title="黄昏",
+        Setting.objects.create(conversation=conv, title="黄昏",
                                tags=[{"id": "s1", "part": "天色", "tags": "dusk"}])
         Setting.objects.create(folder=folder, title="雨夜", tags=[{"id": "s1", "part": "天气", "tags": "rain"}])
         titles = [(s["title"], bool(s.get("conversation_id"))) for s in selection_payload(conv)["settings"]]

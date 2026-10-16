@@ -1,5 +1,5 @@
 from django.apps import AppConfig
-from core import ui_text
+from core import ui_text_zh as ui_text  # read while apps load: no database yet
 
 
 class CoreConfig(AppConfig):

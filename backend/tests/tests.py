@@ -2112,6 +2112,7 @@ class AssembledWordingTests(TestCase):
     #: The same contract for core/ui_text.py, the sentences a person reads.
     UI_PLACEHOLDERS = {
         "TOO_MANY_ATTEMPTS": {"minutes"},            # views.auth
+        "LANGUAGE_UNKNOWN": {"codes"},               # views.appsettings
         "TITLE_REQUIRED": {"max"},                   # views.phrases / views.projects
         "NAME_REQUIRED": {"max"},                    # views.projects
         "CONTENT_REQUIRED": {"max"},                 # views.phrases
@@ -2143,6 +2144,7 @@ class AssembledWordingTests(TestCase):
         "PAINT_ONE_FAILED": {"n", "error"},                   # services.pipeline._paint
         "PROMPT_MULTI_WITHOUT_CENTER": {"who"},               # services.prompt.check
         "PROPOSAL_LINES_DROPPED": {"name", "n", "parts"},     # services.proposals
+        "PROPOSAL_NAME_TAKEN": {"name"},                      # services.proposals
         "PROPOSAL_NOT_RECORDED": {"error"},                   # services.pipeline._record_proposal
         "COPY_FROM_MISSED": {"name", "picture"},              # services.pipeline._resolve_copies
         "PATCH_NOT_AN_OBJECT": {"where"},                     # services.prompt.apply

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vallotton</title>
+<meta name="description" content="Vallotton: an AI drawing studio. Talk to Vallotton in plain language, let NovelAI V5 paint, keep characters and styles in a library, and refine picture by picture.">
+<link rel="icon" href="../assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@500;600&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<header class="top"><div class="top-inner">
+  <a class="brand" href="index.html"><img src="../assets/logo.png" alt=""><span class="word">Vallotton</span><span class="sub">Docs</span></a>
+  <nav class="menu">
+    <a class="active" href="index.html">Overview</a>
+    <a href="quickstart.html">Quick start</a>
+    <a href="guide.html">User guide</a>
+    <a href="deploy.html">Deployment</a>
+    <a class="lang" href="../index.html" lang="zh-CN">中文</a>
+  </nav>
+</div></header>
+
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-text">
+      <div class="hero-title">
+        <img class="hero-logo" src="../assets/logo.png" alt="">
+        <div class="hero-words">
+          <h1>Vallotton</h1>
+          <div class="tag">Your AI drawing studio</div>
+        </div>
+      </div>
+      <p>Vallotton is, at heart, an AI drawing workflow. Its goal is to drive a tag-based image model (NovelAI V5) through natural conversation, while solving some of the problems such models have on their own, such as keeping a style consistent and reusing original characters, and adding planning, continuous generation and self-reflection on top.</p>
+      <div class="hero-actions">
+        <a class="btn" href="quickstart.html">Quick start</a>
+        <a class="btn ghost" href="guide.html">User guide</a>
+        <a class="btn ghost" href="deploy.html">Deployment</a>
+        <a class="btn ghost" href="https://github.com/FFTYYY/ProjectVallotton"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+      </div>
+    </div>
+    <div class="hero-art"><img src="../assets/hero.jpg" alt="The painter Vallotton at work in her studio late at night"></div>
+  </div>
+</section>
+
+<main class="page single">
+<article style="max-width: none;">
+
+<h2>What Vallotton is</h2>
+<p>Vallotton is a drawing studio. It looks and works much like ChatGPT: every piece of work is a conversation. Vallotton paints what you ask for, edits pictures already in the conversation, discusses them with you, or simply chats. (<del>Early in the month: GPT Astra, recite the multiplication table for me. Late in the month: you know, Vallotton is not bad at programming either.</del>)</p>
+<p>Underneath, Vallotton is a workflow that joins a large language model (DeepSeek V4 flash by default) to NovelAI V5. The core loop is simple: the language model translates what you say into the Danbooru-style prompt that NovelAI understands, and NovelAI paints it. Done naively, that runs into trouble fast: the same character looks different in every picture, the details of her clothes drift, the style wanders, and there is no way to change just one part of a picture. Vallotton adds a fairly involved process around the loop to avoid these problems as far as it can.</p>
+<p>Understanding this core loop matters, because what Vallotton can do is bounded by what its language model and NovelAI can do. It is very good at characters from popular anime franchises and supports artist-style tags<sup class="fn"><a href="#fn1" id="fnref1">1</a></sup>, because NovelAI was trained for exactly that; NovelAI also has dedicated landscape and furry datasets, and Vallotton does well there too. What it cannot do is produce photorealistic images the way ChatGPT (with gpt-image-2.5 behind it) can.</p>
+
+<h2>What you need to know and have before you start</h2>
+<div class="facts">
+  <div><b>NovelAI</b><span>A NovelAI subscription and its persistent token. Vallotton's pictures use the subscription's allowance.</span></div>
+  <div><b>Language model</b><span>A DeepSeek API key (Grok is supported too; see the <a href="deploy.html#env">deployment guide</a>).</span></div>
+  <div><b>Running locally</b><span>To run Vallotton on your own computer you need a Windows, macOS or Linux machine with an internet connection. The start script downloads a Python runtime by itself if the computer has none.</span></div>
+  <div><b>Deploying to a server</b><span>To run Vallotton on a server you need a Linux machine reachable from the internet, and a domain name.</span></div>
+</div>
+
+<p>Pick the guide that fits what you want to do.</p>
+
+<div class="cards">
+  <a class="card" href="quickstart.html">
+    <div class="n">I</div>
+    <h3>Quick start</h3>
+    <p>Start Vallotton on your own computer and paint your first picture.</p>
+  </a>
+  <a class="card" href="guide.html">
+    <div class="n">II</div>
+    <h3>User guide</h3>
+    <p>How to use everything, and the words for it: editing pictures, the two-layer library, variants and tag lines, reflection and continuous generation, the inspector.</p>
+  </a>
+  <a class="card" href="deploy.html">
+    <div class="n">III</div>
+    <h3>Deployment</h3>
+    <p>Put Vallotton on a server so you can reach it from anywhere, and configure it through environment variables.</p>
+  </a>
+</div>
+
+<div class="footnotes">
+<p id="fn1"><sup>1</sup>Drawing characters from a particular franchise, or imitating the personal style of a living artist, is contested in many places: legally it may touch intellectual property, and ethically many artists have said clearly that they do not want AI imitating their style. Vallotton exposes this part of NovelAI's ability as it is, with no filter added and no judgement made on your behalf. Where the pictures go, whether they are published or sold, and whether an artist's name is attached, is for you to weigh against the rules and the ethics that apply, and NovelAI's terms of service. <a href="#fnref1" title="Back to the text">↩</a></p>
+<p id="fn-license"><sup>*</sup> Vallotton is released under the Apache-2.0 license. NovelAI, DeepSeek and xAI are services of their respective companies; the accounts, the costs and the generated content are the user's own responsibility.</p>
+</div>
+
+</article>
+</main>
+<footer class="foot">
+  <span>Vallotton · AI drawing studio</span>
+  <a href="quickstart.html">Quick start</a>
+  <a href="guide.html">User guide</a>
+  <a href="deploy.html">Deployment</a>
+</footer>
+</body>
+</html>

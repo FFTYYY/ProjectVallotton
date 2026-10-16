@@ -10,7 +10,10 @@
 import type { Character, Setting } from "../api/types";
 import { t } from "../uiText";
 
-export const STALE_HINT = t.staleHint;
+/** read when shown, not at import: it is in the language chosen now */
+export function staleHint(): string {
+  return t.staleHint;
+}
 /** how often to ask again while something is waiting */
 export const STALE_POLL_MS = 20_000;
 

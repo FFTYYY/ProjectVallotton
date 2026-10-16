@@ -183,7 +183,7 @@
   padding: 9px 17px;
   border-radius: var(--r-2);
   background: var(--ink);
-  color: #eef1f8;
+  color: var(--on-ink);
   font-size: 12.5px;
   letter-spacing: 0.02em;
   box-shadow: var(--lift);
@@ -222,7 +222,7 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(31, 38, 51, 0.32);
+  background: var(--scrim);
   animation: fade-in var(--fast) var(--ease);
 }
 
@@ -366,7 +366,7 @@
   border-color: var(--danger);
   color: var(--on-accent);
 }
-.info-action-btn.danger.solid:hover { background: #9c4d41; border-color: #9c4d41; }
+.info-action-btn.danger.solid:hover { background: var(--danger-strong); border-color: var(--danger-strong); }
 
 /* ==========================================================================
    tooltip — content on arrival, not after the browser's own long pause

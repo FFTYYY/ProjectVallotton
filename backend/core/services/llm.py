@@ -44,7 +44,7 @@ from django.conf import settings
 
 from core import prompts
 from core.prompts import wording
-from core import ui_text
+from core import i18n, ui_text
 
 from . import danbooru, novelai, prompt as prompt_slots, providers
 from .providers import LLMError
@@ -343,7 +343,6 @@ LINES_SCHEMA = {
 #: retried and then raised, so it never gets this far. This is for the model
 #: answering with well-formed JSON that says nothing at all —
 #: {"reply": "", "draw": null} — which leaves a row with no text and no picture.
-EMPTY_REPLY_FALLBACK = ui_text.EMPTY_REPLY_FALLBACK
 
 
 def _run(
@@ -507,7 +506,7 @@ def _clean_lines(raw) -> list[dict]:
         tags = str(item.get("tags") or "").strip()
         part = str(item.get("part") or "").strip()
         if tags:
-            out.append({"part": part or wording.LINE_PART_OTHER, "tags": tags})
+            out.append({"part": part or wording.part_word("other"), "tags": tags})
     return out
 
 
@@ -618,7 +617,7 @@ def _normalize_lead(parsed: dict) -> dict:
             out["edits"] = {"settings": settings_edits, "characters": characters}
 
     if not out["reply"] and not out["draw"]:
-        out["reply"] = EMPTY_REPLY_FALLBACK
+        out["reply"] = ui_text.EMPTY_REPLY_FALLBACK
     return out
 
 
@@ -970,7 +969,7 @@ def make_title(user_text: str, reply_text: str) -> str:
     """Name a conversation. Best-effort — a failure here costs nothing."""
     try:
         title = providers.active().describe(
-            system=wording.TITLE_SYSTEM,
+            system=wording.TITLE_SYSTEM + wording.TITLE_LANGUAGE[i18n.current()],
             messages=[
                 {
                     "role": "user",

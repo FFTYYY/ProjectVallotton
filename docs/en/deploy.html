@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deployment · Vallotton</title>
+<meta name="description" content="Put Vallotton on a server: docker compose, host nginx, HTTPS, MCP, backups, and what every environment variable means.">
+<link rel="icon" href="../assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@500;600&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/toc.js" defer></script>
+</head>
+<body>
+<header class="top"><div class="top-inner">
+  <a class="brand" href="index.html"><img src="../assets/logo.png" alt=""><span class="word">Vallotton</span><span class="sub">Docs</span></a>
+  <nav class="menu">
+    <a href="index.html">Overview</a>
+    <a href="quickstart.html">Quick start</a>
+    <a href="guide.html">User guide</a>
+    <a class="active" href="deploy.html">Deployment</a>
+    <a class="lang" href="../deploy.html" lang="zh-CN">中文</a>
+  </nav>
+</div></header>
+
+<main class="page">
+<aside class="toc"><div class="toc-fixed">
+  <div class="toc-site">
+    <div class="toc-title">Docs</div>
+    <a class="page-link" href="index.html">Overview</a>
+    <a class="page-link" href="quickstart.html">Quick start</a>
+    <a class="page-link" href="guide.html">User guide</a>
+    <a class="page-link current" href="deploy.html">Deployment</a>
+  </div>
+  <div class="toc-title">On this page</div>
+  <div class="toc-page">
+    <a href="#prep">What you need</a>
+    <a href="#steps">Deployment steps</a>
+    <a class="l2" href="#step-code">Download the code</a>
+    <a class="l2" href="#step-env">Fill in .env</a>
+    <a class="l2" href="#step-up">Start</a>
+    <a class="l2" href="#step-https">Domain and HTTPS</a>
+    <a class="l2" href="#step-open">Open the page</a>
+    <a href="#ops">Day-to-day maintenance</a>
+    <a href="#mcp">MCP</a>
+    <a href="#security">About security</a>
+    <a href="#faq">Appendix: if something goes wrong</a>
+    <a href="#env">Appendix: environment variables</a>
+  </div>
+</div></aside>
+
+<article>
+<h1>Deployment</h1>
+<p class="lede">This chapter explains in detail how to put Vallotton on a server. Once it is deployed, you can open Vallotton from anywhere (including your phone) through your own domain name, and the painting happens on the server too, so your own computer does not have to stay on. The chapter assumes you can log in to a Linux server and work on its command line. If you only want to use Vallotton on your own computer, the <a href="quickstart.html">quick start</a> is all you need.</p>
+
+<h2 id="prep">What you need</h2>
+<ul>
+  <li><b>A Linux server</b> reachable from the internet. The commands below use Ubuntu as the example. The painting is done on NovelAI's side, so the server does not need a graphics card.</li>
+  <li><b>A domain name</b>. At your domain registrar, add an A record pointing to the server's IP. Vallotton can only be logged in to through an HTTPS domain; if you open it by IP address, you will not be able to log in.</li>
+  <li><b>Your NovelAI and DeepSeek keys</b>, the same ones the quick start asks for. See <a href="quickstart.html#accounts">two accounts</a> for how to get them.</li>
+  <li><b>Docker, nginx and certbot installed on the server.</b> Docker runs Vallotton, nginx connects your domain to Vallotton, and certbot gets you a free HTTPS certificate:
+<pre><code>curl -fsSL https://get.docker.com | sh
+sudo apt install nginx certbot python3-certbot-nginx</code></pre></li>
+  <li><b>Ports 22, 80 and 443 opened in your cloud provider's console</b> (usually under “security groups” or “firewall”). 22 is for logging in to the server, 80 and 443 for the web page.</li>
+</ul>
+
+<h2 id="steps">Deployment steps</h2>
+<p>Once deployed, Vallotton runs inside Docker on the server and opens a single port on the server itself only (8300 by default). When your domain is visited from outside, the request first reaches nginx on the server, which handles HTTPS, and is then passed on to Vallotton. The steps are explained in order below.</p>
+
+<h3 id="step-code">1. Download the code</h3>
+<p>Log in to the server and download the code to a fixed location, for example <code>/srv/vallotton/app</code>. Also create a directory just for the finished pictures, for example <code>/srv/vallotton/media</code>. The rest of this chapter uses these two paths as the example; if you choose different ones, adjust the commands below to match.</p>
+<pre><code>sudo mkdir -p /srv/vallotton/media
+sudo chown -R $USER /srv/vallotton
+git clone https://github.com/FFTYYY/ProjectVallotton.git /srv/vallotton/app
+cd /srv/vallotton/app</code></pre>
+<p>All the commands below assume you are in this code directory, <code>/srv/vallotton/app</code>.</p>
+
+<h3 id="step-env">2. Fill in .env</h3>
+<p>All of Vallotton's configuration, including every key and password, lives in the <code>.env</code> file in the code directory. Start by copying the template:</p>
+<pre><code>cp .env.example .env</code></pre>
+<p>Then open it in an editor (for example <code>nano .env</code>) and change these items:</p>
+<div class="wrap"><table>
+<tr><th>Item</th><th>What to enter</th></tr>
+<tr><td><code>LLM_PROVIDER</code></td><td>Which language model to use. Only <code>deepseek</code> or <code>grok</code> are supported at the moment. The template defaults to <code>deepseek</code>.</td></tr>
+<tr><td><code>DEEPSEEK_API_KEY</code></td><td>Your DeepSeek API key. Needed only when <code>LLM_PROVIDER</code> is <code>deepseek</code>. Starts with <code>sk-</code>.</td></tr>
+<tr><td><code>GROK_API_KEY</code></td><td>Your Grok API key. Needed only when <code>LLM_PROVIDER</code> is <code>grok</code>. Starts with <code>xai-</code>.</td></tr>
+<tr><td><code>NOVELAI_API_KEY</code></td><td>Your NovelAI key. Starts with <code>pst-</code>.</td></tr>
+<tr><td><code>APP_USERNAME</code><br><code>APP_PASSWORD</code></td><td>The username and password for logging in to the Vallotton web page.</td></tr>
+<tr><td><code>ADMIN_PASSWORD</code></td><td>The password for the admin backend. You will hardly ever need it; just set a long random password.</td></tr>
+<tr><td><code>DJANGO_SECRET_KEY</code></td><td>A string of random characters, used to protect the login state.</td></tr>
+<tr><td><code>POSTGRES_PASSWORD</code></td><td>The database password. You will never use it yourself, so again a string of random characters is fine.</td></tr>
+<tr><td><code>DOMAIN</code></td><td>Your domain name, without the <code>https://</code> prefix. For example <code>vallotton.example.com</code>.</td></tr>
+<tr><td><code>MEDIA_DIR</code></td><td>The directory for the pictures. Enter the <code>/srv/vallotton/media</code> you created in the previous step.</td></tr>
+</table></div>
+<p>The following items are optional but commonly used:</p>
+<ul>
+  <li><code>OPENROUTER_API_KEY</code>: an OpenRouter API key. With it set, if the language model's official endpoint cannot be reached, Vallotton switches temporarily to the OpenRouter backup route by itself.</li>
+  <li><code>MCP_TOKEN</code>: the MCP key. Needed only if you intend to enable <a href="#mcp">MCP</a>. Usually a string of random characters; you copy it when you need it.</li>
+  <li>The model names and reasoning effort for each provider, such as <code>DEEPSEEK_MODEL</code> and <code>GROK_REASONING_EFFORT</code>: change these if you want a different model or want things faster or slower. The full list is in the environment variables appendix below.</li>
+</ul>
+<p>The rest can usually stay at their defaults. The complete list is in the <a href="#env">environment variables</a> appendix at the end.</p>
+
+<h3 id="step-up">3. Start</h3>
+<p>In the code directory, run:</p>
+<pre><code>docker compose up -d --build</code></pre>
+<p>The first start downloads and builds a few Docker images, which takes a few minutes. When it is done, check with these two commands:</p>
+<pre><code>docker compose ps
+curl -s http://127.0.0.1:8300/api/auth/me</code></pre>
+<p>The first should list three containers, db, backend and web, all with status Up. The second should return <code>{"authenticated": false}</code>, which means Vallotton is running on port 8300 of the server itself.</p>
+<p>It cannot be reached from the internet yet, because port 8300 is open only to the server itself. Access from outside goes through nginx, which is configured in the next step. If port 8300 is already taken by another program on the server, change <code>VALLOTTON_HTTP_PORT</code> in <code>.env</code> to another port and run <code>docker compose up -d</code> again; the nginx configuration in the next step then has to change to match.</p>
+
+<h3 id="step-https">4. Domain and HTTPS</h3>
+<p>The code ships with an nginx configuration template, <code>deploy/host-nginx.conf.example</code>, which forwards visits to your domain on to Vallotton. The commands below configure nginx automatically. In these commands, and in the rest of the chapter, the example domain is <code>vallotton.example.com</code>. Before running them, replace <code>vallotton.example.com</code> with your own domain.</p>
+<pre><code>sudo sh -c 'sed "s/YOUR_DOMAIN/vallotton.example.com/g" deploy/host-nginx.conf.example > /etc/nginx/sites-available/vallotton'
+sudo ln -s /etc/nginx/sites-available/vallotton /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx</code></pre>
+<p>Then get an HTTPS certificate with certbot (again, replace the example domain <code>vallotton.example.com</code> with your own). It edits the configuration you just created to add HTTPS, and makes http visits redirect to https automatically:</p>
+<pre><code>sudo certbot --nginx -d vallotton.example.com</code></pre>
+<p>The certificate is valid for 90 days. certbot renews it by itself before it expires, so nothing more is needed.</p>
+<div class="note"><p><b>If your domain is on Cloudflare:</b> before requesting the certificate with certbot, switch that record to “DNS only” (the grey cloud) in Cloudflare, and switch it back to proxied once the certificate has been issued.</p>
+<p>You can also skip certbot and use a Cloudflare Origin Certificate instead: generate one in Cloudflare under SSL/TLS → Origin Server. It is valid for 15 years and never needs renewing. Put the certificate and the private key on the server, and add a server block for port 443 to the nginx configuration that points at them. A certificate of this kind only works for visits that go through Cloudflare's proxy.</p>
+<p>Whichever certificate you use, Cloudflare's SSL/TLS mode must be “Full (strict)”, not “Flexible”; otherwise the page opens but you cannot log in.</p></div>
+
+<h3 id="step-open">5. Open the page</h3>
+<p>If all went well, open <code>https://vallotton.example.com</code> (your own domain) in a browser and log in to Vallotton with the <code>APP_USERNAME</code> and <code>APP_PASSWORD</code> you set in <code>.env</code>. From here on, everything works exactly as described in the <a href="quickstart.html">quick start</a> and the <a href="guide.html">user guide</a>. You can also install Vallotton as an app on your phone; see <a href="guide.html#mobile">on a phone</a> in the user guide.</p>
+<p>One thing to keep in mind: you must open it through https and the domain name. If you open it over plain http or by the server's IP address, the page may display but you cannot log in. That is deliberate, for security.</p>
+
+<h2 id="ops">Day-to-day maintenance</h2>
+<p>All the commands below are run in the code directory, <code>/srv/vallotton/app</code>.</p>
+<ul>
+  <li><b>Update to a new version</b>: pull the latest code, then rebuild and restart.
+<pre><code>git pull && docker compose up -d --build</code></pre></li>
+  <li><b>Change the configuration</b>: after editing <code>.env</code>, run <code>docker compose up -d</code> and the change takes effect. The web login username and password are changed the same way; they are updated automatically at every start.</li>
+  <li><b>View the logs</b>: when something goes wrong and you want to see what happened, look at the backend log. Press <kbd>Ctrl+C</kbd> to leave it.
+<pre><code>docker compose logs -f backend</code></pre></li>
+  <li><b>Stop</b>: run <code>docker compose down</code>. Conversations and pictures are kept, and the next <code>docker compose up -d</code> carries on from there. Do not add <code>-v</code>; that deletes the database as well.</li>
+  <li><b>Back up</b>: all of Vallotton's data is the database plus the pictures directory (pictures are kept in a separate folder rather than inside the database, for performance and easier management). These commands back up both:
+<pre><code>docker compose exec db pg_dump -U vallotton vallotton | gzip > backup-$(date +%F).sql.gz
+tar czf media-$(date +%F).tar.gz -C /srv/vallotton media</code></pre>
+  To restore the database from a backup (replace <code>DATE</code> with the date suffix of the file):
+<pre><code>gunzip -c backup-DATE.sql.gz | docker compose exec -T db psql -U vallotton vallotton</code></pre></li>
+</ul>
+<p>Vallotton also has an admin backend that shows every conversation, message and picture, and the API spend per day. For security it is not exposed by default, and you will not normally need it. If you really do, create a <code>docker-compose.override.yml</code> in the code directory that gives backend <code>ports: ["127.0.0.1:8000:8000"]</code>, temporarily set <code>COOKIE_SECURE=0</code> in <code>.env</code>, and restart the service. Then connect to the server through an SSH tunnel, open <code>http://127.0.0.1:8000/admin/</code> and log in with <code>ADMIN_USERNAME</code> and <code>ADMIN_PASSWORD</code>. Remember to undo both changes when you are done.</p>
+
+<h2 id="mcp">MCP</h2>
+<p>MCP is an interface Vallotton provides for reaching its internal services through a URL. Other programs can use it to send a line of text and get the finished picture back, or to draw directly from a prompt, check the balance, and so on. Conversations started through MCP also show up in the left bar of the web page.</p>
+<p>Note that this interface uses Vallotton's own simplified, home-grown variant of the protocol, not standard MCP, so it cannot be connected directly from clients like Claude Desktop or Cursor (MCP is not that common these days anyway...).</p>
+<p>To enable it:</p>
+<ol>
+  <li>Set <code>MCP_TOKEN</code> in <code>.env</code> to any string you like. This is the key to your Vallotton's MCP service.</li>
+  <li>Run <code>docker compose --profile mcp up -d --build</code>. You can check with <code>curl -s http://127.0.0.1:8301/health</code>; if the response contains <code>"ok": true</code>, it is up.</li>
+  <li>By default MCP listens only on port 8301 of the server itself. To reach it from the internet, set <code>MCP_BIND=0.0.0.0</code> in <code>.env</code> and run the previous command again. Remember to open port 8301 in your cloud provider's console.</li>
+</ol>
+<p>To use MCP, just give your coding agent the following information, and it will figure out on its own how to talk to Vallotton's MCP service.</p>
+<pre><code>{
+  "name": "vallotton",
+  "url": "http://SERVER_IP:8301",
+  "bearer_token": "the MCP_TOKEN from your .env"
+}</code></pre>
+<p>Two things to keep in mind. First, if you open it to the internet, MCP is reached from outside over plain HTTP. Second, a picture can take several minutes, so set the client's timeout to 600 seconds or more.</p>
+
+<h2 id="security">About security</h2>
+<p>If you deploy by this guide, Vallotton already has these protections by default:</p>
+<ul>
+  <li>Only nginx's ports 80 and 443 are open to the outside. Vallotton's own port and the database stay inside the server and cannot be reached from outside. MCP is exposed only when you set <code>MCP_BIND=0.0.0.0</code>.</li>
+  <li>Eight wrong passwords in a row on the web login lock it for 15 minutes. The web login and the admin backend are two separate accounts.</li>
+  <li>Finished pictures can only be seen after logging in; someone who has a picture's address cannot open it.</li>
+  <li>Uploaded images are checked: only image formats are accepted, at most 15 MB each.</li>
+</ul>
+<p>What you have to take care of yourself: use long random strings for all the passwords in <code>.env</code>; never share the <code>.env</code> file or commit it to git; and in your cloud provider's console open only 22, 80 and 443, plus the MCP port if you really do mean to expose it.</p>
+
+<h2 id="faq">Appendix: if something goes wrong</h2>
+<p>A short checklist.</p>
+<div class="wrap"><table>
+<tr><th>What you see</th><th>Cause and what to do</th></tr>
+<tr><td>The page opens, but you cannot log in</td><td>Check that you opened it as <code>https://YOUR_DOMAIN</code>; opening it by IP address or over http will not let you log in. If you use Cloudflare, check that the SSL/TLS mode is “Full (strict)”. A server clock that is far off causes this too.</td></tr>
+<tr><td>Logging in says you are locked out</td><td>Eight wrong passwords in a row lock the login for 15 minutes. Wait a while and try again.</td></tr>
+<tr><td>Starting says the port is in use</td><td>Change <code>VALLOTTON_HTTP_PORT</code> in <code>.env</code> (or <code>MCP_PUBLIC_PORT</code> for MCP) to another port, run <code>docker compose up -d</code>, then change the port in the <code>proxy_pass</code> line of the nginx configuration to match and reload nginx.</td></tr>
+<tr><td>A picture stops halfway with “The task was interrupted”</td><td>Vallotton was restarted while painting, for example right as you updated to a new version. Send the message again.</td></tr>
+<tr><td>It stays at “is thinking it over” for ever</td><td>The language model's official endpoint cannot be reached. You can set up the backup route with <code>OPENROUTER_API_KEY</code> in <code>.env</code>; when the official endpoint is down, Vallotton switches to the backup route by itself. “Routes” on the Settings page shows which one is in use at the moment.</td></tr>
+<tr><td>Painting fails and the error mentions “402”</td><td>The NovelAI account's points (Anlas) are used up, usually because the quality was set to “High”. Set it back to “Mid” in the generation settings.</td></tr>
+<tr><td>NovelAI shows “status unknown”</td><td>Now and then NovelAI's account status cannot be fetched. It does not affect painting and recovers by itself in a few minutes.</td></tr>
+<tr><td>The MCP client times out</td><td>Set the client's timeout to 600 seconds or more. A drawing request only returns once the picture is finished.</td></tr>
+</table></div>
+
+<h2 id="env">Appendix: environment variables</h2>
+<p>Below are the items that can be set in <code>.env</code>, grouped by purpose. “Default” is the value used when the item is left out. Items marked “required” have no default and must be given a value; without one, Vallotton will not start, or the feature in question will not work.</p>
+<p>The example values in <code>.env.example</code> may differ from the defaults; what counts is what is actually written in <code>.env</code>. For a deployment you normally only need to change the items listed in <a href="#step-env">step 2</a>.</p>
+<div class="wrap"><table>
+<tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+<tr class="group"><td colspan="3">Language model</td></tr>
+<tr><td><code>LLM_PROVIDER</code></td><td><code>deepseek</code></td><td>Whose language model to use: <code>deepseek</code> or <code>grok</code>.</td></tr>
+<tr><td class="req"><code>DEEPSEEK_API_KEY</code></td><td>—</td><td>DeepSeek key. Required when using DeepSeek.</td></tr>
+<tr><td><code>DEEPSEEK_MODEL</code></td><td><code>deepseek-flash</code></td><td>Which DeepSeek model to use.</td></tr>
+<tr><td><code>DEEPSEEK_REASONING_EFFORT</code></td><td><code>max</code></td><td>DeepSeek's reasoning effort when understanding the conversation and planning the picture.</td></tr>
+<tr><td><code>DEEPSEEK_DRAW_REASONING_EFFORT</code></td><td><code>max</code></td><td>DeepSeek's reasoning effort when writing the drawing prompt.</td></tr>
+<tr><td><code>DEEPSEEK_MAX_TOKENS</code></td><td><code>128000</code></td><td>The most tokens one answer may contain. Set it too small and answers get cut off easily.</td></tr>
+<tr><td><code>DEEPSEEK_RETRIES</code></td><td><code>2</code></td><td>How many times to retry automatically when DeepSeek's answer is empty or malformed (DeepSeek has formatting hiccups now and then).</td></tr>
+<tr><td><code>DEEPSEEK_CONTEXT_LIMIT</code></td><td><code>1000000</code></td><td>DeepSeek's context limit.</td></tr>
+<tr><td><code>DEEPSEEK_LONG_CONTEXT_THRESHOLD</code></td><td><code>400000</code></td><td>The conversation context length at which you get a reminder, once, when using DeepSeek.</td></tr>
+<tr><td><code>OPENROUTER_API_KEY</code></td><td>empty</td><td>OpenRouter key. DeepSeek's official service is not always stable; with an OpenRouter key set, a timeout on the official endpoint switches automatically to the same model on OpenRouter.</td></tr>
+<tr><td><code>OPENROUTER_BASE</code></td><td><code>https://openrouter.ai/api/v1</code></td><td>Address of the OpenRouter backup route.</td></tr>
+<tr><td><code>OPENROUTER_MODEL</code></td><td><code>deepseek/deepseek-v4.1-flash</code></td><td>The model used on the OpenRouter backup route.</td></tr>
+<tr><td><code>LLM_ROAD_BLOCKED_SECONDS</code></td><td><code>1800</code></td><td>After the official endpoint fails, how many seconds at most to route around it.</td></tr>
+<tr><td><code>LLM_ROAD_PROBE_SECONDS</code></td><td><code>60</code></td><td>While routing around the official endpoint, how many seconds between attempts to use it again.</td></tr>
+<tr><td class="req"><code>GROK_API_KEY</code></td><td>—</td><td>xAI key. Required when using Grok.</td></tr>
+<tr><td><code>GROK_MODEL</code></td><td><code>grok-4.6</code></td><td>Which Grok model to use.</td></tr>
+<tr><td><code>GROK_REASONING_EFFORT</code></td><td><code>high</code></td><td>Grok's reasoning effort when understanding the conversation and planning the picture. <code>high</code> corresponds to what xAI calls the expert level.</td></tr>
+<tr><td><code>GROK_DRAW_REASONING_EFFORT</code></td><td><code>medium</code></td><td>Grok's reasoning effort when writing the drawing prompt.</td></tr>
+<tr><td><code>GROK_TITLE_MODEL</code></td><td><code>grok-4.20-non-reasoning</code></td><td>The model Grok uses to give conversations their titles automatically. Leave it empty to use <code>GROK_MODEL</code>.<br/>(Incidentally, with DeepSeek the titles are written by <code>DEEPSEEK_MODEL</code> directly and there is no separate setting, because DeepSeek is cheap anyway.)</td></tr>
+<tr><td><code>GROK_CONTEXT_LIMIT</code></td><td><code>500000</code></td><td>Grok's context limit.</td></tr>
+<tr><td><code>GROK_LONG_CONTEXT_THRESHOLD</code></td><td><code>200000</code></td><td>The conversation context length at which you get a reminder, once, when using Grok.</td></tr>
+<tr><td><code>GROK_MAX_TOKENS</code></td><td><code>20000</code></td><td>The most tokens one Grok answer may contain.</td></tr>
+<tr><td><code>GROK_CONTEXT_WARN_RATIO</code></td><td><code>0.8</code></td><td>At what fraction of the context the warnings begin. This one applies whichever provider you use.</td></tr>
+<tr><td><code>LLM_TIMEOUT_SECONDS</code></td><td><code>420</code></td><td>How many seconds without any output from the model count as a timeout.</td></tr>
+<tr><td><code>LLM_ANSWER_SECONDS</code></td><td><code>600</code></td><td>How many seconds at most to wait for one answer; beyond that the question is asked again.</td></tr>
+<tr><td><code>LEAD_TOOL_ROUNDS</code></td><td><code>2</code></td><td>How many times at most the tag table is looked up while understanding the conversation and planning the picture. 0 means no lookups.</td></tr>
+<tr><td><code>DRAW_TOOL_ROUNDS</code></td><td><code>4</code></td><td>How many times at most the tag table is looked up while writing the picture into a prompt. 0 means no lookups.</td></tr>
+<tr><td><code>LEAD_USAGE_SCENARIO</code><br><code>DRAW_USAGE_SCENARIO</code></td><td>empty</td><td>The “usage scenario” passage at the start of the system prompt.</td></tr>
+<tr><td><code>DRAW_TEMPERATURE</code></td><td><code>0</code></td><td>The randomness when writing the picture into a prompt. This step is just translation and needs no creativity, so the default is 0.</td></tr>
+<tr class="group"><td colspan="3">Drawing</td></tr>
+<tr><td class="req"><code>NOVELAI_API_KEY</code></td><td>—</td><td>NovelAI key, starting with <code>pst-</code>.</td></tr>
+<tr><td><code>NAI_MODEL</code></td><td><code>nai-diffusion-5-full</code></td><td>The NovelAI model used at Mid and High quality (Low quality always uses the previous generation, V4.5).</td></tr>
+<tr class="group"><td colspan="3">Reflection and continuous generation</td></tr>
+<tr><td><code>MAX_REFLECTION_ROUNDS</code></td><td><code>10</code></td><td>The highest value “Reflection rounds” can be set to.</td></tr>
+<tr><td><code>MAX_CONTINUOUS_ROUNDS</code></td><td><code>20</code></td><td>The highest value “Continuous” can be set to.</td></tr>
+<tr><td><code>FREE_RETRIES_IN_RUN</code></td><td><code>2</code></td><td>How many retries when reflection or continuous generation fails midway.</td></tr>
+<tr><td><code>JOB_STALE_SECONDS</code></td><td><code>180</code></td><td>How many seconds a task may go without progress before it counts as interrupted.</td></tr>
+<tr><td><code>JOB_SWEEP_SECONDS</code></td><td><code>60</code></td><td>How many seconds between checks for interrupted tasks; the same check also sends the next line of a continuous generation. 0 means no checks (and then continuous generation does not continue either).</td></tr>
+<tr class="group"><td colspan="3">Accounts</td></tr>
+<tr><td><code>APP_USERNAME</code></td><td><code>user</code></td><td>Username for the web login.</td></tr>
+<tr><td class="req"><code>APP_PASSWORD</code></td><td>—</td><td>Password for the web login.</td></tr>
+<tr><td><code>ADMIN_USERNAME</code></td><td><code>admin</code></td><td>Username for the admin backend.</td></tr>
+<tr><td class="req"><code>ADMIN_PASSWORD</code></td><td>—</td><td>Password for the admin backend.</td></tr>
+<tr class="group"><td colspan="3">Site</td></tr>
+<tr><td><code>DJANGO_SECRET_KEY</code></td><td>an insecure placeholder</td><td>The key that protects the login state. Change it to a string of random characters when deploying. It starts without the change, but is not secure.</td></tr>
+<tr><td class="req"><code>DOMAIN</code></td><td>empty</td><td>Your domain name. Logging in is only possible through this domain.</td></tr>
+<tr><td><code>DJANGO_DEBUG</code></td><td><code>0</code></td><td>Debug switch: 1 is on, 0 is off. Keep it at 0 when deploying. If you deploy by this guide, compose already pins it to 0, and changing it has no effect.</td></tr>
+<tr><td><code>COOKIE_SECURE</code></td><td><code>1</code></td><td>At 1, the login state travels only over https. Set it to 0 only while the <a href="#ops">admin backend</a> is temporarily enabled, and change it back afterwards.</td></tr>
+<tr><td><code>TRUSTED_PROXY_HOPS</code></td><td><code>1</code></td><td>How many layers of reverse proxy sit in front of Vallotton on the server. Deployed by this guide, it is 1 and normally needs no change. Getting the count wrong disables the login attempt limit.</td></tr>
+<tr class="group"><td colspan="3">Database and pictures</td></tr>
+<tr><td class="req"><code>POSTGRES_PASSWORD</code></td><td>—</td><td>Database password; a string of random characters is fine.</td></tr>
+<tr><td><code>POSTGRES_DB</code><br><code>POSTGRES_USER</code></td><td><code>vallotton</code></td><td>Database name and username; normally no need to change.</td></tr>
+<tr><td><code>POSTGRES_HOST</code><br><code>POSTGRES_PORT</code></td><td><code>127.0.0.1</code><br><code>5432</code></td><td>Database address and port. Deployed by this guide, compose always connects to its own database container, so no change is needed. Only used when running the backend outside docker.</td></tr>
+<tr><td><code>MEDIA_DIR</code></td><td><code>./tmp/media</code></td><td>The directory on the server where pictures are kept. Use an absolute path when deploying.</td></tr>
+<tr class="group"><td colspan="3">Ports and MCP</td></tr>
+<tr><td><code>VALLOTTON_HTTP_PORT</code></td><td><code>8300</code></td><td>The port Vallotton opens on the server itself; nginx forwards visits here. No need to change it unless it clashes with another application's port.</td></tr>
+<tr><td><code>MCP_PUBLIC_PORT</code></td><td><code>8301</code></td><td>MCP's port on the server. Only used when MCP is enabled.</td></tr>
+<tr><td><code>MCP_BIND</code></td><td><code>127.0.0.1</code></td><td>Who the MCP port is open to. <code>127.0.0.1</code> means only the server itself; <code>0.0.0.0</code> means it can be reached directly from outside.</td></tr>
+<tr><td class="req"><code>MCP_TOKEN</code></td><td>—</td><td>The key that MCP requests must carry. Required when MCP is enabled.</td></tr>
+<tr><td><code>MCP_HOST</code><br><code>MCP_PORT</code></td><td><code>127.0.0.1</code><br><code>8766</code></td><td>The listen address and port when running <code>mcp/server.py</code> on its own outside docker. No change needed with compose.</td></tr>
+<tr><td><code>VALLOTTON_BACKEND_URL</code></td><td><code>http://127.0.0.1:8000</code></td><td>Which backend MCP forwards requests to. With compose it points at the backend container automatically; no change needed.</td></tr>
+</table></div>
+<p>A few variables used only in development and testing (such as switching the database to sqlite, or painting placeholder images instead of calling NovelAI) are not listed here.</p>
+
+<div class="pager"><a href="guide.html">← User guide</a><a href="index.html">Overview →</a></div>
+</article>
+</main>
+<footer class="foot">
+  <span>Vallotton · AI drawing studio</span>
+  <a href="quickstart.html">Quick start</a>
+  <a href="guide.html">User guide</a>
+  <a href="deploy.html">Deployment</a>
+</footer>
+</body>
+</html>

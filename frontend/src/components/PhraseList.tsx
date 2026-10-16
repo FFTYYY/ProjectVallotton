@@ -174,7 +174,7 @@ export function PhraseList({
                 <button
                   role="radio"
                   aria-checked={chosenId === p.id}
-                  aria-label={`${chooseHint}：「${p.title}」`}
+                  aria-label={t.labelledQuote(chooseHint, p.title)}
                   className={`phrase-radio ${chosenId === p.id ? "on" : ""}`}
                   onClick={() => onChoose(p.id)}
                 >

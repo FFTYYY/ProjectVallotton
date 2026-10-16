@@ -56,7 +56,7 @@ def lines_of(raw) -> list[dict]:
             continue
         line = {
             "id": str(item.get("id") or "").strip(),
-            "part": str(item.get("part") or "").strip() or wording.LINE_PART_OTHER,
+            "part": str(item.get("part") or "").strip() or wording.part_word("other"),
             "tags": tags,
         }
         if item.get("by") == LINE_BY_USER:
@@ -248,7 +248,7 @@ def copied_lines(source: str, raw, taken: set[str] | None = None,
     for item in raw or []:
         if not isinstance(item, dict):
             continue
-        part = str(item.get("part") or "").strip() or wording.LINE_PART_OTHER
+        part = str(item.get("part") or "").strip() or wording.part_word("other")
         keys = []
         for t in _split(str(item.get("tags") or "")):
             key = norm(t)
@@ -270,7 +270,7 @@ def copied_lines(source: str, raw, taken: set[str] | None = None,
     if keep_rest:
         rest = [t for t in have if norm(t) not in taken]
         if rest:
-            lines.append({"id": "", "part": wording.LINE_PART_OTHER, "tags": ", ".join(rest)})
+            lines.append({"id": "", "part": wording.part_word("other"), "tags": ", ".join(rest)})
             taken |= {norm(t) for t in rest}
     return lines, dropped
 
@@ -479,7 +479,7 @@ def _brief(text: str, limit: int = 60) -> str:
 def is_style_line(ln: dict) -> bool:
     """Whether a setting's line is a style line (its part is the style part):
     spliced into every picture's style slot by the app rather than picked."""
-    return (ln.get("part") or "") == wording.LINE_PART_STYLE
+    return wording.is_part(ln.get("part") or "", "style")
 
 
 def as_lines(selection: Selection) -> str:
@@ -645,14 +645,14 @@ def rebuild_own_layer(own: dict, into: Conversation) -> tuple[list, list]:
 
     for i, s in enumerate(own.get("settings") or [], 1):
         made = Setting.objects.create(
-            folder=into.folder, conversation=into, title=s.get("title") or "",
+            folder=None, conversation=into, title=s.get("title") or "",
             content=s.get("content") or "", tags=lines_of(s.get("tags")), position=i, **dated(s),
         )
         if s.get("selected"):
             on_settings.append(made)
     for i, c in enumerate(own.get("characters") or [], 1):
         made = Character.objects.create(
-            folder=into.folder, conversation=into, name=c.get("name") or "",
+            folder=None, conversation=into, name=c.get("name") or "",
             description=c.get("description") or "", tags=lines_of(c.get("tags")), position=i, **dated(c),
         )
         for j, v in enumerate(c.get("variants") or [], 1):

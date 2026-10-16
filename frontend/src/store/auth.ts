@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import { api, ensureCsrf, setUnauthorizedHandler } from "../api/client";
+import { useLanguage } from "../i18n/language";
 
 interface AuthState {
   checked: boolean;
@@ -19,7 +20,7 @@ export const useAuth = create<AuthState>((set) => ({
   check: async () => {
     try {
       await ensureCsrf();
-      const me = await api.get<{ authenticated: boolean; username?: string }>(
+      const me = await api.get<{ authenticated: boolean; username?: string; language?: string }>(
         "/api/auth/me",
       );
       set({
@@ -27,6 +28,8 @@ export const useAuth = create<AuthState>((set) => ({
         authenticated: me.authenticated,
         username: me.username ?? "",
       });
+      // said before login too, so the login page speaks the account's language
+      useLanguage.getState().adopt(me.language);
     } catch {
       set({ checked: true, authenticated: false, username: "" });
     }

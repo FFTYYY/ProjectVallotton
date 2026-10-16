@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>User guide · Vallotton</title>
+<meta name="description" content="Vallotton's user guide: the screens, painting and editing pictures, reference pictures, the library, generation settings, reflection, continuous generation, the inspector, the settings page, and the words for it all.">
+<link rel="icon" href="../assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@500;600&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/toc.js" defer></script>
+</head>
+<body>
+<header class="top"><div class="top-inner">
+  <a class="brand" href="index.html"><img src="../assets/logo.png" alt=""><span class="word">Vallotton</span><span class="sub">Docs</span></a>
+  <nav class="menu">
+    <a href="index.html">Overview</a>
+    <a href="quickstart.html">Quick start</a>
+    <a class="active" href="guide.html">User guide</a>
+    <a href="deploy.html">Deployment</a>
+    <a class="lang" href="../guide.html" lang="zh-CN">中文</a>
+  </nav>
+</div></header>
+
+<main class="page">
+<aside class="toc"><div class="toc-fixed">
+  <div class="toc-site">
+    <div class="toc-title">Docs</div>
+    <a class="page-link" href="index.html">Overview</a>
+    <a class="page-link" href="quickstart.html">Quick start</a>
+    <a class="page-link current" href="guide.html">User guide</a>
+    <a class="page-link" href="deploy.html">Deployment</a>
+  </div>
+  <div class="toc-title">On this page</div>
+  <div class="toc-page">
+    <a href="#layout">The main screen</a>
+    <a class="l2" href="#pictures">Finished pictures</a>
+    <a class="l2" href="#main-picture">The lightbox and the main picture</a>
+    <a class="l2" href="#references">The composer and reference pictures</a>
+    <a class="l2" href="#rightbar">The right bar</a>
+    <a href="#library">The library</a>
+    <a class="l2" href="#entries">Entries and tag lines</a>
+    <a class="l2" href="#selection">Attaching and detaching</a>
+    <a href="#projects">Projects</a>
+    <a class="l2" href="#layers">This conversation and the project</a>
+    <a class="l2" href="#project-page">The project page</a>
+    <a href="#gen-settings">Generation settings</a>
+    <a href="#reflection">Reflection</a>
+    <a href="#phrases">Continuous generation and quick phrases</a>
+    <a href="#inspect">The inspector</a>
+    <a href="#settings-page">The settings page</a>
+    <a href="#mobile">On a phone</a>
+    <a href="#mcp">MCP</a>
+  </div>
+</div></aside>
+
+<article>
+<h1>User guide</h1>
+<p class="lede">This chapter is the fuller tutorial for Vallotton: what each screen is for, and how the library, reflection, continuous generation and the rest work. If you have not used Vallotton yet, read the <a href="quickstart.html">quick start</a> first and come back once your first picture is painted. The sections are mostly independent, so read only the ones you need.</p>
+
+<h2 id="layout">The main screen</h2>
+<p>The main screen is where you paint day to day, and it works much like ChatGPT and other AI chat apps. Open any conversation in Vallotton and you are on it: the window is split into a left bar, a middle and a right bar, with the composer at the bottom.</p>
+<figure><img class="shot" src="../assets/shots/en/layout.jpg" alt="Vallotton's main screen, with the left bar, the middle, the right bar and the composer each marked with an orange box" loading="lazy"><figcaption>The main screen. The table below says what the four parts are for.</figcaption></figure>
+<div class="wrap"><table style="--first-col: 6em">
+<tr><th>Where</th><th>What it is for</th></tr>
+<tr><td>Left bar</td><td>At the top are the “Settings” link and the “New conversation” button. Under them are three tabs, three ways of looking at your conversations: “Chats” lists every conversation by date; “Projects” lists them by project, see <a href="#projects">projects</a>; “Archived” lists the ones you have put away. At the bottom of the left bar are the NovelAI and DeepSeek balances, the number of pictures painted so far and the like, then the username and three buttons: switch the language, switch the theme, log out.</td></tr>
+<tr><td>Middle</td><td>The conversation itself: what you said, Vallotton's replies, the pictures it painted.</td></tr>
+<tr><td>Right bar</td><td>The settings of the current conversation: its title, the library entries it can use, the generation settings, the quick phrases, see <a href="#rightbar">the right bar</a>. The button at the top right collapses or opens it.</td></tr>
+<tr><td>Composer</td><td>Type what you want painted here. <kbd>Enter</kbd> sends, <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line. The paperclip button at the bottom left adds reference pictures. The row of chips above the composer shows the library entries and the generation settings this conversation is using.</td></tr>
+</table></div>
+
+<h3 id="pictures">Finished pictures</h3>
+<p>A finished picture appears inside Vallotton's reply. Above it is a line starting with #: the picture's id. Use it to point at a particular picture, for example “make the umbrella in #v898fc red”.</p>
+<p>A message can ask for a new picture or for a change to one already painted; Vallotton works out which from what you say. If you give no id, the change goes to the most recent picture. A changed picture shows “Edited from” and the original's id after its own.</p>
+<figure><img class="shot" src="../assets/shots/en/edit.jpg" alt="One edit: a red umbrella, the figure closer to the camera, the background unchanged" loading="lazy"><figcaption>One edit: “make the umbrella red, and bring her a little closer to the camera”. Only the umbrella and the distance changed; after the id it says “Edited from” and the original's id.</figcaption></figure>
+<p>Under each picture, in order:</p>
+<ul>
+  <li><b>The reflection result</b>: only there when reflection is on; it says how many rounds were reflected on and how many times the picture was redrawn, see <a href="#reflection">reflection</a>.</li>
+  <li><b>Materials used</b>: which library entries went into this picture; open it to see exactly which lines, see <a href="#library">the library</a>.</li>
+  <li><b>NovelAI prompts</b>: the prompts sent to NovelAI. Folded by default; open it to read them, and the button beside it copies them.</li>
+  <li><b>The time it took, and a few buttons</b>. What the buttons do is in the table below.</li>
+</ul>
+<div class="wrap"><table style="--first-col: 6em">
+<tr><th>Button</th><th>What it does</th></tr>
+<tr><td>Redraw</td><td>Paints again with the same prompts, changing only the random result. For when the composition is right and you want the details to try their luck once more.</td></tr>
+<tr><td>Copy</td><td>Copies the text of this reply.</td></tr>
+<tr><td>Branch</td><td>Copies a new conversation off from this message. The new conversation holds this message and everything before it, nothing after it, and the library goes back to how it was at that point. For when you want to try another direction from a point you like without touching the original conversation.</td></tr>
+<tr><td>Rerun</td><td>Generates this whole reply again; the old reply is replaced. Only the latest reply has this button.</td></tr>
+<tr><td>Inspect</td><td>Shows every detail of this round, see <a href="#inspect">the inspector</a>.</td></tr>
+</table></div>
+<p>While a picture is being painted, the send button at the bottom right of the composer turns into a stop button; click it to stop. If several pictures are being painted at once, there is also a “Stop and keep this picture” button: the pictures already finished stay, and the rest are not painted.</p>
+
+<h3 id="main-picture">The lightbox and the main picture</h3>
+<p>Click a picture to open it large. In the lightbox you can step left and right through every picture in the conversation. The bar at the bottom says which picture this is, its size, the random seed and so on, with three buttons beside it: Set as main picture, Download the original, Add to references.</p>
+<p>If you set “Pictures” in the generation settings to 2 to 4, each message paints several pictures, each a little different. In the lightbox you can then mark the one you like best with “Set as main picture”; the next time you ask Vallotton for a change, that is the one it changes. If you have not chosen, the first one is the main picture.</p>
+<figure><img class="shot" src="../assets/shots/en/lightbox.jpg" alt="The lightbox: the picture enlarged in the middle; the bar at the bottom says which picture it is, its size and the random seed, with the three buttons Set as main picture, Download the original and Add to references beside it" loading="lazy"><figcaption>The lightbox. At the bottom, in order: which picture it is, the size, the random seed, and the three buttons Set as main picture, Download the original, Add to references.</figcaption></figure>
+
+<h3 id="references">The composer and reference pictures</h3>
+<p>You can attach reference pictures to a message to show Vallotton the style, the character or the composition you have in mind: “paint in the style of this one”, “this is what she looks like”. To add one, click the paperclip button at the bottom left of the composer, or just drag the picture into the composer. A message takes up to 6 pictures, each at most 15 MB.</p>
+<p>A finished picture can be a reference too: click “Add to references” in the lightbox and it lands in the composer. Bear in mind that Vallotton does not edit a reference picture directly; a reference is only something for it to look at.</p>
+<p>By default a reference picture counts only for the message it is attached to. If you want earlier references to stay in force, turn on “Sticky references” in the generation settings in the right bar; from then on every message carries all the references attached so far, up to 6.</p>
+<p>The row of chips above the composer shows the library entries this conversation is using now, and whether reflection, continuous generation, sticky references and so on are turned on. Rest the mouse on a chip to see what it holds; click it to open the right bar.</p>
+
+<h3 id="rightbar">The right bar</h3>
+<p>The right bar holds the settings of the current conversation, in four blocks from top to bottom:</p>
+<ul>
+  <li><b>Current conversation</b>: the title (you can edit it in place), which project it belongs to, when it was created, the context (its length) and so on.</li>
+  <li><b>Library</b>: every entry this conversation can use; click an entry to attach or detach it, see <a href="#selection">attaching and detaching</a>.</li>
+  <li><b>Generation settings</b>: the settings this conversation paints with, see <a href="#gen-settings">generation settings</a>.</li>
+  <li><b>Quick phrases</b>: ready-made lines you use often, see <a href="#continuous">continuous generation and quick phrases</a>.</li>
+</ul>
+<figure><img class="shot narrow" src="../assets/shots/en/rightbar.png" alt="The right bar: current conversation, library (two entries under “This conversation”, with edit and delete buttons on the right), generation settings, quick phrases" loading="lazy"><figcaption>The right bar. Under “This conversation” are the entries that belong to this conversation alone, with edit and delete buttons on the right; once the conversation is in a project there is also a “Save to project” button, see <a href="#layers">this conversation and the project</a>.</figcaption></figure>
+
+<h2 id="library">The library</h2>
+<p>The library is where Vallotton keeps what it knows about characters, clothes, styles and the like. Left to the model's own memory, the same character easily ends up looking different from one picture to the next, and the details of her clothes come and go. With the library, Vallotton paints the character from what is written down every time, so characters and style stay the same across many pictures, and you do not have to describe everything again each time.</p>
+<p>Most of the time you need not look after the library yourself: a new character, a style you have settled on, Vallotton writes them down on its own, and if you say “give her a red sweater instead”, it updates the notes as it goes. You can of course edit the library yourself whenever you like.</p>
+
+<h3 id="entries">Entries and tag lines</h3>
+<p>Each item in the library is an entry. There are three kinds:</p>
+<dl class="terms">
+  <dt>Lore entry</dt><dd>A style, a scene that recurs, a rule that holds throughout the story (“it is always raining”), and so on.</dd>
+  <dt>Character</dt><dd>The parts of a character that do not change with her clothes: sex, hair, eyes, skin, whether she has a mole or a scar.</dd>
+  <dt>Variant</dt><dd>One of a character's outfits, with its accessories, pose and so on. A character can have several variants, and changing clothes does not change her face.</dd>
+</dl>
+<p>Every entry has two parts: a passage of notes and a number of tag lines. The notes are plain description and can hold things that cannot be painted, like personality or background. What actually decides how the picture turns out are the tag lines: each line describes one thing, say the hair, the eyes, the top, the shoes, in the English keywords NovelAI knows. For example:</p>
+<pre><code>Character “Ellie”
+  identity  1girl, black hair, short hair
+  eyes      green eyes
+  mole      mole under left eye
+
+Variant “School uniform”
+  top       white sailor shirt, navy sailor collar
+  bottom    navy pleated skirt
+  shoes     brown loafers
+  socks     black knee socks</code></pre>
+<p>When painting, Vallotton uses these tag lines whole and never rewrites them, so a character on record does not drift from picture to picture. The other way round, anything that is not written on some line may come out differently in every picture.</p>
+<p>An entry can be changed at any time. Click the edit button beside it in the right bar to change its name and notes; if you change only the notes, Vallotton rewrites the tag lines from the new notes within a minute or two. Entries in a project can also have their tag lines edited directly on <a href="#project-page">the project page</a>. If you write tag lines yourself, a few suggestions:</p>
+<ul>
+  <li>One thing per line: a line for the hair, one for the eyes, one for the top, one for the shoes.</li>
+  <li>Spell out whatever affects the picture: colour, material, length, position. A mole should say whether it is under the left eye or the right.</li>
+  <li>In a variant, write down every piece of clothing from head to toe, even if this picture only goes down to the knees. Anything left out may come out differently in every picture.</li>
+</ul>
+<figure><img class="shot" src="../assets/shots/en/library.png" alt="The character “White-haired girl” opened on the project page: notes, tag lines, and one variant" loading="lazy"><figcaption>A character, opened. Under the notes are the tag lines; the variant sits inside the character and has tag lines of its own.</figcaption></figure>
+
+<h3 id="selection">Attaching and detaching entries</h3>
+<p>A library entry has to be attached to the message before it is used in the pictures that follow. In the library in the right bar, click a lore entry to attach it to the current message or detach it; for a character, open it first and click one of its variants, which attaches that character in that variant (wearing that outfit, say). Attached entries show as chips above the composer.</p>
+<figure><img class="shot" src="../assets/shots/en/chips-hover.png" alt="Three chips above the composer, with the mouse resting on “White-haired girl”; the bubble shows her description and the “Beige trench coat” outfit" loading="lazy"><figcaption>The chips above the composer are the entries attached right now. Rest the mouse on a chip (tap it on a phone) to see what it holds.</figcaption></figure>
+
+<h2 id="projects">Projects</h2>
+<p>Once you have many conversations, projects keep them sorted. A project is like a folder: it holds conversations, and it can hold sub-projects.</p>
+<p>The more important use of a project is a shared library. The library of the previous section belongs by default to the current conversation only; in another conversation everything would have to be remembered afresh. Every project has a library of its own, and the characters and lore in it can be used by every conversation in the project. If you are painting a serial story, say, make a project for it and put the main character into the project's library; every new conversation in that project can then paint the same main character.</p>
+
+<h3 id="layers">The two layers of the library</h3>
+<p>So the library really has two layers: one belongs to the current conversation alone and is labelled “This conversation” on screen; the other belongs to the project, and every conversation in the project can use it.</p>
+<ul>
+  <li>What Vallotton writes down in a conversation goes into the “This conversation” layer by default. In the row of chips above the composer, this conversation's entries are teal chips and the project's entries are dark grey chips.</li>
+  <li>If you want the other conversations in the project to use an entry too, click the “Save to project” button beside it in the right bar, or just tell Vallotton to “save it to the project”. The conversation has to be in a project before Vallotton can edit the project's library.</li>
+  <li>When Vallotton wants to write into the project layer, it asks first: a card appears in the conversation asking you to confirm. Only after you click “Write to the library” is anything written to the project library. If you would rather not confirm every time, change “Auto library” in the generation settings.</li>
+</ul>
+<figure><img class="shot narrow" src="../assets/shots/en/proposal.png" alt="The card that appears when Vallotton wants to write a lore entry into the project library, with the buttons “Write to the library” and “Not now” underneath" loading="lazy"><figcaption>The card that appears when Vallotton wants to write something into the project library.</figcaption></figure>
+
+<p>Projects are layered too: a conversation in a project inherits the library entries of all its ancestor projects. When the library is searched, the entries nearest the current conversation win. That is, this conversation's own entries come first; if the entry is not in this conversation, the parent project's library is searched, and only if it is not there either are the ancestor projects' libraries searched.</p>
+
+<h3 id="project-page">The project page</h3>
+<figure><img class="shot" src="../assets/shots/en/project.jpg" alt="The project page: the left bar on the “Projects” tab, and in the middle the library page of the project “Example project”, in two columns, lore and characters" loading="lazy"><figcaption>The project page. Switch the left bar to the “Projects” tab and click a project to open its page.</figcaption></figure>
+<p>Switch the left bar to the “Projects” tab to see every project and the conversations in it. While you are looking at a project, or at a conversation in it, the “New conversation · project name” button in the left bar starts a new conversation in that project.</p>
+<p>With a project selected, the middle of the window is no longer a conversation but the page for editing that project's library. The page has two columns, “Lore” and “Characters”. Here you can create entries, open the cards, change their contents, add variants to characters, delete entries and so on. If projects are nested, the entries of the outer projects show here too, but marked “Inherited”: they can be looked at, not changed.</p>
+<p>The “Archive” button at the top right of the page puts away the whole project, conversations and sub-projects included. Archiving deletes nothing; it can all be found again at any time under the “Archived” tab in the left bar.</p>
+
+<h2 id="gen-settings">Generation settings</h2>
+<p>The generation settings are the parameters that govern painting. Every conversation has its own set, which you can see and change in the right bar. A new conversation starts with the defaults from the settings page.</p>
+<div class="wrap"><table>
+<tr><th>Setting</th><th>Range</th><th>What it does</th></tr>
+<tr><td>Pictures</td><td>1-4</td><td>How many pictures each message paints.</td></tr>
+<tr><td>Quality</td><td>Low, Mid, High</td><td>“Mid” paints a normal-size picture with NovelAI V5, using the subscription's V5 allowance. “High” paints a larger picture with V5, and each one costs extra points (Anlas) from the NovelAI account. “Low” uses the previous generation of model and does not touch the V5 allowance.<br/>Note that Mid and High differ only in resolution, while Low switches model and the results are far worse. Low is normally for when the V5 allowance is used up and there is nothing else for it.</td></tr>
+<tr><td>Reflection rounds</td><td>0-10</td><td>How many rounds of reflection, at most, after each picture, see <a href="#reflection">reflection</a>. 0 means no reflection.</td></tr>
+<tr><td>Continuous</td><td>1-20</td><td>How many pictures one message paints in a row, see <a href="#continuous">continuous generation</a>. 1 means no continuous generation.</td></tr>
+<tr><td>Auto library</td><td>Off, Edits only, All</td><td>Whether Vallotton asks before changing the project library. “Off” means it asks every time; “Edits only” means it asks when creating an entry but not when changing an existing one; “All” means it never asks.</td></tr>
+<tr><td>Sticky references</td><td>On, off</td><td>Whether reference pictures sent earlier stay in the context, see <a href="#references">the composer and reference pictures</a>.</td></tr>
+</table></div>
+
+<h2 id="reflection">Reflection</h2>
+<p>With reflection on, after each picture is painted Vallotton looks it over itself and checks it against what you asked for: glasses that were asked for and not painted, a person missing, the perspective wrong, that sort of thing. If it finds something, it makes the change and paints again, until it is satisfied or the reflection rounds run out.</p>
+<p>Reflection is on as soon as “Reflection rounds” in the generation settings in the right bar is 1 or more. While it works, the conversation shows the progress: “is studying this picture”, “is painting it again”. The repainted picture replaces the earlier one. If you stop generation during a repaint, the picture from before the repaint is the result.</p>
+
+<h2 id="phrases">Quick phrases</h2>
+<p>Quick phrases are ready-made lines you use often, such as a line that fixes the style: “paint this in the style of Japanese digital illustration”. You can create and edit quick phrases in the right bar or on the settings page. Click a quick phrase in the right bar and it is put into the composer for you.</p>
+
+
+<h2 id="continuous">Continuous generation</h2>
+<p>Continuous generation lets Vallotton paint a whole set of pictures in one go, several scenes of a story for instance. To use it:</p>
+<ol>
+  <li>In the generation settings, set “Continuous” to the number of pictures you want.</li>
+  <li>Select a quick phrase. The selected phrase is marked “Sent automatically during continuous generation”. Usually a transitional line does the job, such as “now paint the next scene”.</li>
+  <li>Send the first message as usual.</li>
+</ol>
+<p>When the first picture is finished, Vallotton sends that quick phrase for you, paints the next picture, and so on up to the number you set. This runs in the background and is not interrupted even if you close the browser; “In progress” on the settings page shows how many pictures are still to come. To stop partway, click the stop button in the composer.</p>
+
+<h2 id="inspect">The inspector</h2>
+<p>If you want to know how Vallotton worked inside during a given round, click the “Inspect” button under the message to open the inspector. It shows the complete internal record of that message.</p>
+<p>There is a lot in it, and most of the time you will not need it. When what came out is not what you said, open it and see where the understanding went astray.</p>
+<figure><img class="shot" src="../assets/shots/en/inspector.png" alt="The inspector: Vallotton's reply at the top, under it the picture description it worked out" loading="lazy"><figcaption>The inspector. At the top is Vallotton's reply, then the picture description it worked out; scrolling down there are the prompts, the reflection record and more.</figcaption></figure>
+
+<h2 id="settings-page">The settings page</h2>
+<p>Click “Settings” at the top of the left bar to open the settings page. Its first row switches the language and the theme; below that you set the defaults for the generation settings, manage the quick phrases and check the state of things in the background.</p>
+<figure><img class="shot" src="../assets/shots/en/settings.png" alt="The settings page: language and theme, the default generation settings for new conversations, quick phrases, routes, in progress, balance, account" loading="lazy"><figcaption>The settings page.</figcaption></figure>
+
+<h2 id="mobile">On a phone</h2>
+<p>Vallotton can be used as a phone app. Open Vallotton's address in the phone's browser and choose “Install and create shortcut” (the wording varies by browser; it may be “Add to Home screen”, “Install” or similar). An app icon then appears on the home screen, and from there it works like any other app.</p>
+<p>The screen on a phone is much the same as on a computer. The button at the top left (or a swipe from left to right) opens the left bar; the button above the composer on the right opens the right bar. The left bar on a phone has no username row; the language and theme switches are on the first row of the settings page.</p>
+<p>Bear in mind that a Vallotton running on your own computer as in the <a href="quickstart.html">quick start</a> can be opened only on that computer. To use it on a phone, it has to be put on a server as in <a href="deploy.html">deployment</a>. (Unless you have some special magic that lets your phone reach a local service on your computer over the home network.)</p>
+<figure><div class="shots-row"><img class="shot" src="../assets/shots/en/phone.jpg" alt="The conversation page on a phone" loading="lazy"><img class="shot" src="../assets/shots/en/phone-chip.jpg" alt="On a phone, tapping a chip above the composer brings up what is on record for this character" loading="lazy"></div><figcaption>What it looks like on a phone. On the right, a chip above the composer has been tapped and shows what is on record for this character.</figcaption></figure>
+
+<h2 id="mcp">MCP</h2>
+<p>A Vallotton deployed on a server can open one more interface so that other programs can drive it (mainly meant for coding agents): send a line, fetch the finished picture, and so on. The interface uses a home-brewed, simplified protocol of its own, not the standard Model Context Protocol, so clients like Claude Desktop and Cursor cannot connect to it directly. How to set it up is in <a href="deploy.html#mcp">the MCP section of the deployment guide</a>.</p>
+
+<div class="pager"><a href="quickstart.html">← Quick start</a><a href="deploy.html">Deployment →</a></div>
+</article>
+</main>
+<footer class="foot">
+  <span>Vallotton · AI drawing studio</span>
+  <a href="quickstart.html">Quick start</a>
+  <a href="guide.html">User guide</a>
+  <a href="deploy.html">Deployment</a>
+</footer>
+</body>
+</html>

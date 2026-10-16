@@ -8,9 +8,9 @@ import {
 import { useDragOnlyOnTouch } from "../lib/dragSlider";
 import {
   AUTO_LIBRARY,
-  AUTO_LIBRARY_LABEL,
+  autoLibraryLabel,
   QUALITIES,
-  QUALITY_LABEL,
+  qualityLabel,
   type AutoLibrary,
   type Quality,
 } from "../lib/genSettings";
@@ -113,7 +113,7 @@ function AutoLibraryMode({
             className={`seg-item wide ${value === m ? "active" : ""}`}
             onClick={() => onChange(m)}
           >
-            {AUTO_LIBRARY_LABEL[m]}
+            {autoLibraryLabel(m)}
           </button>
         ))}
       </div>
@@ -138,7 +138,7 @@ function QualityTier({
             className={`seg-item ${value === q ? "active" : ""}`}
             onClick={() => onChange(q)}
           >
-            {QUALITY_LABEL[q]}
+            {qualityLabel(q)}
           </button>
         ))}
       </div>

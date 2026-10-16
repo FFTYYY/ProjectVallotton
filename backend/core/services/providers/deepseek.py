@@ -46,7 +46,6 @@ API_BASE = "https://api.deepseek.com"
 _known = Roads(blocked_for=settings.LLM_ROAD_BLOCKED_SECONDS)
 
 #: What to call each road where a person will read it.
-LABELS = ui_text.ROUTE_LABELS
 
 #: What to call each road to someone who is not reading this file.
 class DeepSeekProvider(Provider):
@@ -174,7 +173,7 @@ class DeepSeekProvider(Provider):
         return [
             {
                 "name": r.name,
-                "label": LABELS.get(r.name, r.name),
+                "label": ui_text.ROUTE_LABELS.get(r.name, r.name),
                 "model": r.model,
                 "stepped_over": _known.blocked(r),
                 "seconds_left": round(_known.until(r)),

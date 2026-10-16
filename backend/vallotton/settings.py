@@ -77,6 +77,7 @@ MIDDLEWARE = [
     # outermost on the way out, so it can take back the Vary that the session
     # middleware adds after a view has already returned — see its docstring
     "core.middleware.DoesNotVaryByWhoAsked",
+    "core.middleware.LanguageScope",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",

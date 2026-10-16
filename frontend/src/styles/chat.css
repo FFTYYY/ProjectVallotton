@@ -138,6 +138,16 @@
 .bubble > .md :first-child { margin-top: 0; }
 .bubble > .md :last-child { margin-bottom: 0; }
 
+/* ---- type per language ----------------------------------------------------
+   Keyed on <html lang>, which src/i18n/language.ts writes from the registry.
+   English: the conversation in the text serif, a touch larger and looser
+   than the sans, so what she says reads as prose and the controls around it
+   as controls. Chinese keeps the single sans above, untouched. */
+html[lang="en"] .msg-row .bubble { font-family: var(--font-prose); }
+html[lang="en"] .msg-row.assistant .bubble { font-size: 16.5px; line-height: 1.7; }
+html[lang="en"] .msg-row.user .bubble { font-size: 15.5px; line-height: 1.6; }
+html[lang="en"] .empty-sub { font-family: var(--font-prose); }
+
 /* ---- the app's own voice ------------------------------------------------ */
 .msg-system {
   /* a note about the messages around it, so it lines up with them */

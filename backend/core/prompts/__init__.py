@@ -19,6 +19,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from core import i18n
 from core.prompts import wording
 
 PROMPT_DIR = Path(__file__).resolve().parent
@@ -59,18 +60,53 @@ def _usage(name: str) -> str:
     return getattr(settings, name, "") or ""
 
 
-def lead() -> str:
-    text = _with_usage(load("lead"), _usage("LEAD_USAGE_SCENARIO"), "lead.txt")
-    assert TAG_LINES_MARK in text, "lead.txt has lost its tag_lines.txt line"
-    return text.replace(TAG_LINES_MARK, load("tag_lines").rstrip("\n"))
+#: the lines in lead.txt and patrol.txt that name the language of what the
+#: model writes for the person: the reply, and the prose of a library entry.
+#: What goes in is wording.REPLY_LANGUAGE / wording.PROSE_LANGUAGE for the
+#: language the account chose (core.i18n); the rest of the prompt is Chinese
+#: whatever that is.
+REPLY_LANGUAGE_MARK = "{{reply_language}}"
+PROSE_LANGUAGE_MARK = "{{prose_language}}"
+#: the part names the app recognises on a tag line, and the hint to write
+#: parts in the person's language (wording.LINE_PARTS, PART_LANGUAGE_HINT)
+PART_STYLE_MARK = "{{part_style}}"
+PART_IDENTITY_MARK = "{{part_identity}}"
+PART_LANGUAGE_MARK = "{{part_language}}"
+
+
+def _in_language(text: str, file: str, *marks: tuple[str, dict[str, str]]) -> str:
+    """Each (marker, table) pair: the marker becomes the table's phrase for
+    the current language. A marker a file has lost is a bug, not a prompt."""
+    code = i18n.current()
+    for mark, table in marks:
+        assert mark in text, f"{file} has lost its {mark}"
+        text = text.replace(mark, table[code])
+    return text
+
+
+def _parts(kind: str) -> dict[str, str]:
+    """the word for one recognised part in each language, as a marker table"""
+    return {code: table[kind] for code, table in wording.LINE_PARTS.items()}
 
 
 def tag_lines() -> str:
-    return load("tag_lines")
+    """tag_lines.txt with the part names and the part-language hint filled
+    for the current language. The lead and the patrol both read it."""
+    return _in_language(load("tag_lines"), "tag_lines.txt", (PART_STYLE_MARK, _parts("style")),
+                        (PART_IDENTITY_MARK, _parts("identity")), (PART_LANGUAGE_MARK, wording.PART_LANGUAGE_HINT))
+
+
+def lead() -> str:
+    text = _with_usage(load("lead"), _usage("LEAD_USAGE_SCENARIO"), "lead.txt")
+    text = _in_language(text, "lead.txt", (REPLY_LANGUAGE_MARK, wording.REPLY_LANGUAGE),
+                        (PROSE_LANGUAGE_MARK, wording.PROSE_LANGUAGE))
+    assert TAG_LINES_MARK in text, "lead.txt has lost its tag_lines.txt line"
+    return text.replace(TAG_LINES_MARK, tag_lines().rstrip("\n"))
 
 
 def drawing() -> str:
-    return _with_usage(load("drawing"), _usage("DRAW_USAGE_SCENARIO"), "drawing.txt")
+    text = _with_usage(load("drawing"), _usage("DRAW_USAGE_SCENARIO"), "drawing.txt")
+    return _in_language(text, "drawing.txt", (PART_STYLE_MARK, _parts("style")))
 
 
 def patrol() -> str:
@@ -78,7 +114,9 @@ def patrol() -> str:
     rules the lead reads. A rule the patrol followed and the lead did not (or
     the other way round) would be the two of them writing two kinds of line
     for the same entry."""
-    return load("patrol") + "\n\n" + load("tag_lines").rstrip("\n")
+    text = _in_language(load("patrol"), "patrol.txt", (PROSE_LANGUAGE_MARK, wording.PROSE_LANGUAGE),
+                        (PART_STYLE_MARK, _parts("style")))
+    return text + "\n\n" + tag_lines().rstrip("\n")
 
 
 def drawing_edit() -> str:

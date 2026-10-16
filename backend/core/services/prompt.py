@@ -268,7 +268,7 @@ def used_entries(picture: dict | None, snapshot: dict | None) -> list[dict]:
     for s in (snapshot or {}).get("settings") or []:
         name = str(s.get("title") or "")
         parts[name] = {ln["id"]: ln["part"] for ln in s.get("tags") or [] if ln.get("id")}
-        style_of[name] = [ln["id"] for ln in s.get("tags") or [] if ln.get("part") == wording.LINE_PART_STYLE]
+        style_of[name] = [ln["id"] for ln in s.get("tags") or [] if wording.is_part(ln.get("part"), "style")]
     for c in (snapshot or {}).get("characters") or []:
         book = {ln["id"]: ln["part"] for ln in c.get("tags") or [] if ln.get("id")}
         for v in c.get("variants") or []:
@@ -827,7 +827,7 @@ def check(
                 who=who or ui_text.PROMPT_NAMELESS, lines="、".join(missing)))
         if who and parts:
             idents = [k for k, part in (parts.get(who) or {}).items()
-                      if part == wording.LINE_PART_IDENTITY]
+                      if wording.is_part(part, "identity")]
             if idents and not any(k in use for k in idents):
                 notes.append(ui_text.PROMPT_IDENTITY_LINE_MISSING.format(
                     who=who, lines="、".join(idents)))

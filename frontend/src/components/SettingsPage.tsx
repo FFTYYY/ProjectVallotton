@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
+import { useLanguage } from "../i18n/language";
+import { LANGUAGES } from "../i18n/languages";
+import { confirmLogout } from "../lib/logout";
 import { llmQuotaLine } from "../lib/quota";
 import { useAppSettings } from "../store/appSettings";
 import { useAuth } from "../store/auth";
@@ -8,6 +11,7 @@ import { usePhrases } from "../store/phrases";
 import { useQuota } from "../store/quota";
 import { GenerationControls } from "./GenerationControls";
 import { NewPhraseButton, PhraseList } from "./PhraseList";
+import { THEMES, useTheme } from "../theme/theme";
 import { ActivityIcon, ChevronLeftIcon, LogOutIcon } from "./Icons";
 import { t } from "../uiText";
 
@@ -53,6 +57,8 @@ export function SettingsPage() {
         </button>
         <h1 className="settings-title">{t.settings}</h1>
 
+        <LanguageThemeSection />
+
         <section className="settings-section">
           <div className="settings-section-title">{t.defaultGenSettings}</div>
           {/* the same four controls the right rail uses, so the thing you set
@@ -67,6 +73,59 @@ export function SettingsPage() {
         <AccountSection onDone={() => navigate("/")} />
       </div>
     </div>
+  );
+}
+
+/**
+ * The language the app speaks and the colours it wears.
+ *
+ * First on the page, and the only place a phone has them: the desktop rail
+ * carries the same two switches beside the username. The language is the
+ * account's and goes to the server; the theme is this browser's and stays in
+ * it. Both are segmented controls over their registries, so a new language
+ * or theme appears here on its own.
+ */
+function LanguageThemeSection() {
+  const language = useLanguage((s) => s.language);
+  const chooseLanguage = useAppSettings((s) => s.chooseLanguage);
+  const theme = useTheme((s) => s.theme);
+  const setTheme = useTheme((s) => s.set);
+  return (
+    <section className="settings-section">
+      <div className="settings-section-title">{t.languageAndTheme}</div>
+      <div className="settings-row">
+        <span className="settings-row-label">{t.language}</span>
+        <div className="seg" role="radiogroup" aria-label={t.language}>
+          {LANGUAGES.map((l) => (
+            <button
+              key={l.code}
+              role="radio"
+              aria-checked={l.code === language}
+              className={`seg-item wide ${l.code === language ? "active" : ""}`}
+              onClick={() => chooseLanguage(l.code)}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="settings-row">
+        <span className="settings-row-label">{t.theme}</span>
+        <div className="seg" role="radiogroup" aria-label={t.theme}>
+          {THEMES.map((th) => (
+            <button
+              key={th.id}
+              role="radio"
+              aria-checked={th.id === theme}
+              className={`seg-item wide ${th.id === theme ? "active" : ""}`}
+              onClick={() => setTheme(th.id)}
+            >
+              {t.themeNames[th.id]}
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -244,6 +303,7 @@ function AccountSection({ onDone }: { onDone: () => void }) {
         <button
           className="settings-danger"
           onClick={async () => {
+            if (!(await confirmLogout())) return;
             await logout();
             onDone();
           }}

@@ -1,0 +1,448 @@
+{
+ "account": "账号",
+ "active": "已激活",
+ "addLine": "加一行",
+ "addReference": "添加参考图",
+ "addToReferences": "加入参考图",
+ "addedToReferences": "已加入参考图",
+ "all": "全部",
+ "appTagline": "AI 绘图工作室",
+ "archive": "归档",
+ "archiveConversationBody": "可以在「已归档」里找回。",
+ "archiveConversationTitle": {
+  "fn": 1
+ },
+ "archiveFolder": "归档这个文件夹",
+ "archiveFolderBody": "里面的对话和子文件夹会一起归档，可以在「已归档」里找回。",
+ "archiveFolderTitle": {
+  "fn": 1
+ },
+ "archiveListEmpty": "这里还是空的。",
+ "archived": "已归档",
+ "archivedSuffix": " · 已归档",
+ "archivedToast": "已归档，可在「已归档」页找到",
+ "autoAll": "全部",
+ "autoEdits": "仅修改",
+ "autoLibrary": "自动修改",
+ "autoLibraryChip": {
+  "fn": 1
+ },
+ "autoOff": "关闭",
+ "back": "返回",
+ "balance": "余额",
+ "balanceLabel": {
+  "fn": 1
+ },
+ "branch": "分支",
+ "branchCreated": "已创建分支对话",
+ "branchFailed": "创建分支失败",
+ "branchFromHere": "从这里创建分支对话",
+ "callsLabel": {
+  "fn": 1
+ },
+ "cancel": "取消",
+ "characterEntry": {
+  "fn": 1
+ },
+ "characterN": {
+  "fn": 1
+ },
+ "characterText": "角色设定",
+ "characterTextPlaceholder": "不随衣着改变的部分",
+ "charactersHeading": "角色",
+ "chars": {
+  "fn": 1
+ },
+ "close": "关闭",
+ "collapse": "收起",
+ "collapseLeftBar": "收起左边栏",
+ "collapseRightBar": "收起右边栏",
+ "composerHint": "Enter 发送 · Shift+Enter 换行",
+ "composerPlaceholder": "描述你想要的画面，或聊聊别的…",
+ "confirm": "确定",
+ "content": "内容",
+ "context": "上下文",
+ "continues": {
+  "fn": 1
+ },
+ "continuous": "连续生成",
+ "continuousChip": {
+  "fn": 1
+ },
+ "continuousCount": "连续生成张数",
+ "continuousNote": {
+  "fn": 2
+ },
+ "continuousPhraseHint": "连续生成时自动发送这条",
+ "conversationGone": "对话不存在或已被删除",
+ "conversationListFailed": "对话列表加载失败。",
+ "conversationMenu": "对话菜单",
+ "conversationSettings": "对话设置",
+ "conversationSettingsAndLibrary": "对话设置与资料库",
+ "conversationTitle": "对话标题",
+ "conversations": "对话",
+ "conversationsSuffix": {
+  "fn": 1
+ },
+ "copied": "已复制",
+ "copiedAll": "已复制全部",
+ "copiedOutput": "已复制输出",
+ "copy": "复制",
+ "copyAll": "复制全文",
+ "copyFailed": "复制失败",
+ "copyOutputOnly": "只复制输出，不含思维链",
+ "copyWithReasoning": "连思维链一起复制",
+ "createCharacter": "新建角色",
+ "createFolder": "新建文件夹",
+ "createSetting": "新建设定",
+ "createSubfolder": "新建子文件夹",
+ "createVariant": "新建变体",
+ "createdAt": "创建于",
+ "currentConversation": "当前对话",
+ "dateTime": {
+  "fn": 3
+ },
+ "defaultGenSettings": "新对话的默认生成设置",
+ "delete": "删除",
+ "deleteCharacter": "删除角色",
+ "deleteCharacterBody": {
+  "fn": 1
+ },
+ "deleteCharacterTitle": {
+  "fn": 1
+ },
+ "deleteLine": "删这一行",
+ "deletePhrase": "删除短语",
+ "deletePhraseTitle": {
+  "fn": 1
+ },
+ "deleteSetting": "删除设定",
+ "deleteSettingBody": "这条设定会从这个文件夹里移除。",
+ "deleteSettingTitle": {
+  "fn": 1
+ },
+ "deleteVariant": "删除变体",
+ "deleteVariantTitle": {
+  "fn": 1
+ },
+ "discard": "丢弃",
+ "downloadOriginal": "下载原图",
+ "dragToSort": "拖动排序",
+ "drawId": "这次绘图的编号",
+ "drawLookups": {
+  "fn": 1
+ },
+ "drawPatch": "绘图AI · 改动清单",
+ "drawPicture": "绘图AI · 这一张的格子",
+ "drawPrompts": "绘图AI · NovelAI prompts",
+ "drawReasoning": "绘图AI · 思维链",
+ "edit": "编辑",
+ "editPhrase": "编辑短语",
+ "empty": "空",
+ "emptyParen": "（空）",
+ "emptyStateLede": "描述你想要的画面，剩下的交给瓦洛东小姐。",
+ "errorHeading": "错误",
+ "expand": "展开",
+ "expandLeftBar": "展开左边栏",
+ "fileTooBig": {
+  "fn": 1
+ },
+ "finalBrief": "留下的那张的 brief（反思最后一轮）",
+ "folder": "文件夹",
+ "folderName": "文件夹名称",
+ "freshStart": "新的开始。想画点什么？",
+ "gaveUp": "放弃",
+ "generatedImageAlt": "生成图片",
+ "generating": "正在生成",
+ "generationFailed": "生成失败",
+ "generationSettings": "生成设置",
+ "gotIt": "知道了",
+ "imagesGenerated": "已生成图片",
+ "inProgress": "正在进行",
+ "inUse": "使用中",
+ "inactive": "未激活",
+ "inherited": "继承",
+ "inspect": "检查",
+ "inspectTitle": "看看两个模型这一轮到底说了什么",
+ "keptAsIs": "就这样",
+ "labelledQuote": {
+  "fn": 2
+ },
+ "language": "语言",
+ "languageAndTheme": "语言和配色",
+ "leadDraw": "主AI · draw（画面描述）",
+ "leadEdits": "主AI · edits（资料库建议）",
+ "leadLookups": {
+  "fn": 1
+ },
+ "leadRaw": "主AI · 原话（整理前）",
+ "leadReasoning": "主AI · 思维链",
+ "leadReferences": {
+  "fn": 1
+ },
+ "leadReply": "主AI · reply",
+ "leadUsage": "主AI · usage",
+ "library": "资料库",
+ "lineTags": "这一行的 tag",
+ "linesUsed": {
+  "fn": 1
+ },
+ "listSep": "、",
+ "loadFailedNetwork": "加载失败，请检查网络",
+ "loadOlder": "加载更早的消息",
+ "loading": "加载中…",
+ "loggedIn": "已登录",
+ "loggingIn": "登录中…",
+ "login": "登录",
+ "logout": "退出登录",
+ "logoutConfirmBody": "下次使用要重新输入用户名和密码。",
+ "logoutConfirmTitle": "退出登录？",
+ "lookupQuery": {
+  "fn": 1
+ },
+ "mainPicture": "主图",
+ "mainPromptLabel": "主 prompt",
+ "materialsUsed": "用到的资料",
+ "moreActions": "更多操作",
+ "moveOut": "移出",
+ "moveOutOfFolder": "移出文件夹",
+ "nImages": "出图数量",
+ "naiQuotaTitle": "NovelAI用量余量",
+ "name": "名称",
+ "negativePromptLabel": "负面 prompt",
+ "networkError": "网络错误，请重试",
+ "newCharacter": "新角色",
+ "newConversation": "新对话",
+ "newConversationIn": {
+  "fn": 1
+ },
+ "newConversationInFolder": {
+  "fn": 1
+ },
+ "newConversationPhraseHint": "新对话连续生成时发送这条",
+ "newFolder": "新文件夹",
+ "newFolderN": {
+  "fn": 1
+ },
+ "newPhrase": "新建短语",
+ "newSetting": "新设定",
+ "newVariant": "新变体",
+ "next": "下一张",
+ "noCharacters": "还没有角色。",
+ "noConversationSelected": "还没有选中对话。",
+ "noConversations": "还没有对话。",
+ "noEntries": "还没有条目。",
+ "noFolders": "还没有文件夹。",
+ "noPhrases": "还没有短语。",
+ "noProjectForLibrary": "这个对话不在任何项目里，资料库没有可写入的位置。想留下这些条目，先把对话移进一个项目（右边栏「项目」那一行）。",
+ "noSettings": "还没有设定。",
+ "notLoggedIn": "未登录",
+ "notNow": "先不要",
+ "notWritten": "没有写入资料库",
+ "noteSep": "；",
+ "nothingRunning": "没有正在跑的任务",
+ "off": "关",
+ "oldVisionDescription": {
+  "fn": 1
+ },
+ "openFailure": "点开看完整的失败原因",
+ "openMenu": "打开菜单",
+ "openProjectLibrary": "打开这个项目的资料库",
+ "openRightBar": "打开右边栏（对话设置与资料库）",
+ "output": "输出",
+ "part": "部分",
+ "password": "密码",
+ "percentParen": {
+  "fn": 1
+ },
+ "persona": "瓦洛东小姐",
+ "phaseCancelling": "正在停止…",
+ "phaseLine": {
+  "fn": 1
+ },
+ "phaseLookup": "正在翻阅资料",
+ "phasePainting": "正在落笔",
+ "phasePaintingPart": {
+  "fn": 1
+ },
+ "phasePrompting": "在斟酌",
+ "phaseRetryPrompting": "提示词没生成成功，正在重试",
+ "phaseRetryThinking": "没给出能用的结果，正在重试",
+ "phaseThinking": "正在构思",
+ "phraseContentPlaceholder": "内容（点击短语时插入输入框的文本）",
+ "phraseTitlePlaceholder": "标题（显示用）",
+ "pickFolderFirst": "先选中一个文件夹，或打开一个已经在文件夹里的对话",
+ "position": {
+  "fn": 2
+ },
+ "prev": "上一张",
+ "project": "项目",
+ "projectListFailed": "项目列表加载失败，请检查网络",
+ "projects": "项目",
+ "promptCharacter": {
+  "fn": 3
+ },
+ "promptMain": {
+  "fn": 1
+ },
+ "promptNegative": {
+  "fn": 1
+ },
+ "promptTokens": {
+  "fn": 1
+ },
+ "promptsCopied": "Prompts已复制",
+ "proposalHead": "瓦洛东想把这些写进资料库",
+ "quality": "画质",
+ "qualityHigh": "高",
+ "qualityLow": "低",
+ "qualityMid": "中",
+ "querySep": "，",
+ "quickPhrases": "快捷短语",
+ "rawOutputTitle": "这一轮的原始输出",
+ "readFailed": "读取失败",
+ "redraw": "重绘",
+ "redrawTitle": "用同样的prompts再画一次（新随机种子）",
+ "redrew": "重画",
+ "referenceAlt": {
+  "fn": 1
+ },
+ "reflectLine": {
+  "fn": 2
+ },
+ "reflectLooking": "正在端详这张画",
+ "reflectLookup": "正在翻阅资料",
+ "reflectPainting": "正在重画",
+ "reflectPrompting": "在斟酌怎么改",
+ "reflectRetry": "刚刚走神了",
+ "reflectionChip": {
+  "fn": 1
+ },
+ "reflectionRounds": "反思轮数",
+ "reflectionRoundsTitle": {
+  "fn": 1
+ },
+ "reflectionSummary": {
+  "fn": 2
+ },
+ "remove": "移除",
+ "rename": "重命名",
+ "renameConversation": "重命名对话",
+ "reportUnavailable": "报告不可用",
+ "requestFailed": {
+  "fn": 1
+ },
+ "rerun": "重跑",
+ "rerunTitle": "重新生成这条回复",
+ "restore": "恢复",
+ "retriedPaid": "重试（用掉一轮）",
+ "retriesNote": {
+  "fn": 1
+ },
+ "retriesSuffix": {
+  "fn": 1
+ },
+ "retry": "重试",
+ "roundN": {
+  "fn": 1
+ },
+ "roundsExhausted": "轮数用完",
+ "routes": "线路",
+ "runsInProgress": {
+  "fn": 1
+ },
+ "save": "保存",
+ "saveToProject": "存到项目",
+ "saveToProjectHint": "存到项目：这个项目里的所有对话都能用",
+ "selectionSnapshot": "这一轮挂上的资料库条目",
+ "send": "发送",
+ "sendFailed": "发送失败",
+ "sendFailedNetwork": "发送失败，网络似乎不太稳定。可以点击消息旁的重试。",
+ "sending": "发送中…",
+ "setMain": "设为主图",
+ "settingEntry": {
+  "fn": 1
+ },
+ "settings": "设置",
+ "settingsHeading": "设定",
+ "settled": "最后满意",
+ "staleHint": "正文改过，tag 行还没跟上；应用会在一两分钟内按正文重写",
+ "standby": "待命",
+ "statusUnknown": "状态未知",
+ "steppedOver": "已绕开",
+ "stickyRefs": "常驻参考",
+ "stickyRefsChip": {
+  "fn": 1
+ },
+ "stillGenerating": "上一条回复还在生成中，请先等待或点击停止",
+ "stop": "⏹ 停止",
+ "stopAfterUpload": "正在上传，稍候即可停止",
+ "stopGenerating": "停止生成",
+ "stopKeepPicture": "停下，保留现在这张",
+ "stopped": "⏹ 已停止",
+ "suggestions": [
+  "画一个在雨夜屋顶上撑伞的白发少女",
+  "水彩风格的春日樱花街道",
+  "一只在书堆里打盹的橘猫，暖色调",
+  "赛博朋克城市夜景，霓虹倒影"
+ ],
+ "switchLanguageTo": {
+  "fn": 1
+ },
+ "switchThemeTo": {
+  "fn": 1
+ },
+ "tagIndexMissing": "标签表没有加载：上面「不在标签表」一栏什么都查不出",
+ "tagLines": "tag 行",
+ "theme": "配色",
+ "themeNames": {
+  "light": "浅色",
+  "dark": "深色"
+ },
+ "thisConversation": "本对话",
+ "title": "标题",
+ "toLatest": "回到最新",
+ "toTop": "回到顶部",
+ "todayCount": {
+  "fn": 1
+ },
+ "todayUsd": {
+  "fn": 1
+ },
+ "tokensShort": {
+  "fn": 1
+ },
+ "tooManyFiles": {
+  "fn": 1
+ },
+ "totalLabel": {
+  "fn": 1
+ },
+ "turnsCount": {
+  "fn": 1
+ },
+ "unarchive": "取消归档",
+ "unarchivedToast": "已取消归档",
+ "unknownError": "未知错误",
+ "unknownTags": {
+  "fn": 1
+ },
+ "unparsedHeading": "模型没能读懂的那次回答 · 原文",
+ "unparsedTitle": "没能读懂的那次回答（原文）",
+ "untitled": "未命名",
+ "untitledParen": "（未命名）",
+ "username": "用户名",
+ "variantBlock": {
+  "fn": 2
+ },
+ "variantCount": {
+  "fn": 1
+ },
+ "variantCountShort": {
+  "fn": 1
+ },
+ "variants": "变体",
+ "whyFailed": "这一轮为什么失败",
+ "writeToLibrary": "写入资料库",
+ "writtenToLibrary": "已写入资料库"
+}

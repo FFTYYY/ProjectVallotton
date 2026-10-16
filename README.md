@@ -4,6 +4,7 @@
 
 <h1 align="center">Vallotton</h1>
 <p align="center">基于NovelAI V5的AI绘图工作流</p>
+<p align="center">中文 · <a href="README.en.md">English</a></p>
 
 Vallotton是一个帮你在NovelAI里稳定出图的对话式工具。你可以像和画师沟通一样直接用自然语言交流，由Vallotton负责构图规划并自动转化为NovelAI V5提示词。
 

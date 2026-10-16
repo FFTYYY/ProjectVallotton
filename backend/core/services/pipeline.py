@@ -64,6 +64,7 @@ from . import (
     prompt as prompt_slots, proposals, providers, reflection,
 )
 from core import ui_text
+from core.services import notices
 
 log = logging.getLogger(__name__)
 
@@ -998,7 +999,7 @@ def _source_tags(conversation: Conversation, before_seq: int, copy_from: dict | 
             # the style lines are in every picture whether picked or not
             parts = {ln["id"]: ln["part"] for s in (src.selection_snapshot or {}).get("settings") or []
                      if s.get("title") == title for ln in s.get("tags") or []}
-            words += [t for k, t in book.items() if parts.get(k) == wording.LINE_PART_STYLE]
+            words += [t for k, t in book.items() if wording.is_part(parts.get(k), "style")]
         for name in ("style", "scene", "light"):
             half = picture["slots"][name]
             words += prompt_slots.tags(half["tags"])
@@ -1067,8 +1068,8 @@ def _resolve_copies(conversation: Conversation, message: Message, edits: dict) -
         if source:
             taken: set[str] = set()
             raw = item.get("tags") or []
-            ident = [x for x in raw if x.get("part") == wording.LINE_PART_IDENTITY]
-            rest = [x for x in raw if x.get("part") != wording.LINE_PART_IDENTITY]
+            ident = [x for x in raw if wording.is_part(x.get("part"), "identity")]
+            rest = [x for x in raw if not wording.is_part(x.get("part"), "identity")]
             # the identity line's words count as claimed, or the catch-all
             # line at the end would collect them a second time
             for x in ident:
@@ -1196,7 +1197,7 @@ def _drop_noop_edits(conversation: Conversation, edits: dict) -> dict:
 
 
 def _fmt_tokens(n: int) -> str:
-    return ui_text.TOKENS_TEN_THOUSAND.format(n=n / 10000) if n >= 10000 else str(n)
+    return notices.fmt_tokens(n)
 
 
 def maybe_context_notice(conversation: Conversation, prompt_tokens: int | None) -> None:
@@ -1219,11 +1220,10 @@ def maybe_context_notice(conversation: Conversation, prompt_tokens: int | None) 
     warn_at = int(limit * settings.GROK_CONTEXT_WARN_RATIO)
     if prompt_tokens >= warn_at:
         kind = "context_warn"
-        text = ui_text.CONTEXT_NEAR_LIMIT.format(
-            used=_fmt_tokens(prompt_tokens), limit=_fmt_tokens(limit))
+        note = {"key": "CONTEXT_NEAR_LIMIT", "used": prompt_tokens, "limit": limit}
     elif prompt_tokens >= provider.long_context_threshold:
         kind = "long_context"
-        text = provider.long_context_note(_fmt_tokens(provider.long_context_threshold))
+        note = {"key": provider.long_context_key, "threshold": provider.long_context_threshold}
     else:
         return
 
@@ -1239,7 +1239,8 @@ def maybe_context_notice(conversation: Conversation, prompt_tokens: int | None) 
                 role="system",
                 status="done",
                 notice_kind=kind,
-                content=text,
+                notice=note,
+                content=notices.render(note),
             )
         log.info("context notice %s emitted for conv %s (%s tokens)",
                  kind, conversation.id, prompt_tokens)
@@ -1560,7 +1561,9 @@ def _maybe_title(conversation: Conversation, message: Message) -> None:
     """Auto-title after the first successful assistant turn."""
     try:
         conversation.refresh_from_db()
-        if conversation.title != ui_text.NEW_CONVERSATION_TITLE:
+        # untitled in whichever language it was made in
+        untitled = ui_text.in_every_language("NEW_CONVERSATION_TITLE")
+        if conversation.title not in untitled:
             return
         first_user = (
             conversation.messages.filter(role="user", archived=False)
@@ -1574,7 +1577,7 @@ def _maybe_title(conversation: Conversation, message: Message) -> None:
             first_user.content or wording.TITLE_IMAGE_PLACEHOLDER, message.content or ""
         )
         if title:
-            Conversation.objects.filter(id=conversation.id, title=ui_text.NEW_CONVERSATION_TITLE).update(
+            Conversation.objects.filter(id=conversation.id, title__in=untitled).update(
                 title=title
             )
     except Exception as exc:  # noqa: BLE001

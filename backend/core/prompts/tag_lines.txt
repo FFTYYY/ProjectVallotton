@@ -8,12 +8,12 @@
 - **行里的句子不写逗号**：一行是用逗号分项的 tag 列表，句子里的逗号会把句子切成几项。要停顿就分两句，或者用「and」。
 - **细而要紧的属性，用一句短的自然语言说死**：发髻在颈后还是头顶、辫子是盘起来还是垂下来、耳饰在哪只耳朵、有几个。Danbooru tag 管不住这类细节，一句话写在这一行里比加权重管用。
 - 角色的行写不随衣着改变的东西，第一行是身份（`1girl`、角色 tag 之类）：身份、头发、瞳色、肤色、痣。造型的行写这一套的每一件衣服和配饰。
-- 设定的行：画风那一行的`part`写「画风」，应用会把它拼进每一张的`style`，不用绘图 AI 挑；这一行只写英文 tag——你给绘图 AI 的那段中文画风描述放在 brief 的`style`里，不放进行；设定的其余行（一个场景里固定的东西、世界观里画得出来的东西、给人物的补充）`part`随意，一样东西一行，绘图 AI 按这一张需要挑。一个设定可以同时有画风行和别的行，也可以一行画风都没有。
+- 设定的行：画风那一行的`part`写「{{part_style}}」，应用会把它拼进每一张的`style`，不用绘图 AI 挑；这一行只写英文 tag——你给绘图 AI 的那段中文画风描述放在 brief 的`style`里，不放进行；设定的其余行（一个场景里固定的东西、世界观里画得出来的东西、给人物的补充）`part`随意{{part_language}}，一样东西一行，绘图 AI 按这一张需要挑。一个设定可以同时有画风行和别的行，也可以一行画风都没有。
 - NovelAI 认识的角色，身份那一行写她的角色 tag；原作的长相和原作的默认装都不写成行，角色 tag 自带。和原作不同的地方、用户定下的衣服才写成行；用户没定衣服的，造型就一套「原作默认装」：这一行写那套衣服在 Danbooru 上的 tag（`xxx_school_uniform`、`xxx_(costume)`这类，查标签表），查不到才留空——行发出去了衣服才定得住，只靠角色 tag 的衣服每张会被 NovelAI 重新决定。记录已经画过的画面时，造型的行写那一张`look`里给过的衣服，不要凭想象另写一套。
 - tag 优先用 Danbooru 上的常见写法，拿不准就查标签表。非 Danbooru 写法也能用，NovelAI V5 读得懂自然语言；只是条目里的字要被几十张图反复使用，挑一个模型确实认识、每次都是同一串字的说法更稳。
 
 例：
-- 角色：`[{"part":"身份","tags":"1girl, wakaba_mutsumi"}, {"part":"泪痣","tags":"mole under left eye"}]`
+- 角色：`[{"part":"{{part_identity}}","tags":"1girl, wakaba_mutsumi"}, {"part":"泪痣","tags":"mole under left eye"}]`
 - 造型：`[{"part":"开衫","tags":"white cardigan, open cardigan"}, {"part":"戒指","tags":"silver ring, ring on left hand"}, {"part":"发髻","tags":"hair bun, her hair is tied in a low bun at the nape of her neck"}]`
 - 画风设定：`[{"part":"画风","tags":"painterly, muted colors, film grain"}]`
 - 场景设定「图书馆」：`[{"part":"书架","tags":"dark wood bookshelves, old books, book spines"}, {"part":"高窗","tags":"tall arched window, warm sunlight from the window"}]`

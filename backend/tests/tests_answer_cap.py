@@ -16,6 +16,7 @@ from unittest import mock
 import httpx
 from django.test import SimpleTestCase
 
+from core import i18n
 from core.services.providers import base
 
 
@@ -30,6 +31,10 @@ def _trickle(then: bytes, pieces: int = 20, every: float = 0.03):
 
 
 class AnswerCapTests(SimpleTestCase):
+    def setUp(self):
+        # the error it reports comes from ui_text: in Chinese, without a database
+        self.enterContext(i18n.use("zh"))
+
     def _endpoint(self, handler):
         """post_with_retry opens its own httpx.Client; route it to `handler`."""
         real = httpx.Client

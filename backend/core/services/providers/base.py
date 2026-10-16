@@ -184,15 +184,12 @@ class Provider(ABC):
     @abstractmethod
     def long_context_threshold(self) -> int: ...
 
-    def long_context_note(self, threshold: str) -> str:
-        """
-        What passing the long-context mark actually means here.
-
-        Vendors differ on whether it means anything at all — one doubles its
-        price, another simply has a big window — so the sentence the user
-        reads belongs to the provider, not to the pipeline.
-        """
-        return ui_text.LONG_CONTEXT.format(threshold=threshold)
+    #: What passing the long-context mark actually means here, as the key of
+    #: the ui_text sentence (core.services.notices renders it). Vendors differ
+    #: on whether it means anything at all — one doubles its price, another
+    #: simply has a big window — so the sentence the user reads belongs to the
+    #: provider, not to the pipeline.
+    long_context_key = "LONG_CONTEXT"
 
 
 # --------------------------------------------------------------------------

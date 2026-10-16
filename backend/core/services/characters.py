@@ -37,7 +37,10 @@ log = logging.getLogger(__name__)
 
 #: What an otherwise empty character is given. The name a person would have
 #: typed, because that is what they will see.
-DEFAULT_TITLE = ui_text.DEFAULT_VARIANT_TITLE
+def default_title() -> str:
+    """The title of the variant made for a character that has none. Read when
+    asked, not at import: it is in the language chosen now."""
+    return ui_text.DEFAULT_VARIANT_TITLE
 
 
 def repair(characters) -> int:
@@ -69,7 +72,7 @@ def repair(characters) -> int:
     # leave it with one variant rather than one of them failing
     CharacterVariant.objects.bulk_create(
         [
-            CharacterVariant(character_id=cid, title=DEFAULT_TITLE, content="", position=1)
+            CharacterVariant(character_id=cid, title=default_title(), content="", position=1)
             for cid in empty
         ],
         ignore_conflicts=True,

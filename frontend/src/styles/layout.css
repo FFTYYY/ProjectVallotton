@@ -151,7 +151,7 @@
     position: fixed;
     inset: 0;
     z-index: 35;
-    background: rgba(31, 38, 51, 0.32);
+    background: var(--scrim);
     opacity: 0;
     pointer-events: none;
     transition: opacity var(--base) var(--ease);

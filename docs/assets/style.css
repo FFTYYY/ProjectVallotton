@@ -137,6 +137,9 @@ nav.menu a {
 }
 nav.menu a:hover { background: var(--tint-soft); text-decoration: none; }
 nav.menu a.active { color: var(--accent-deep); background: var(--tint-soft); font-weight: 500; }
+/* the other language: a switch rather than a page, so it stands a little apart */
+nav.menu a.lang { margin-left: 10px; padding: 5px 11px; border: 1px solid var(--rule); color: var(--ink-3); font-size: 13px; }
+nav.menu a.lang:hover { color: var(--accent-deep); border-color: var(--rule-strong); }
 
 /* ---------------------------------------------------------------- page grid */
 .page {

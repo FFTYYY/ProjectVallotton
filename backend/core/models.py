@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from django.db import models
-from core import ui_text
+from core import i18n, ui_text
 
 if TYPE_CHECKING:
     from django.db.models.manager import RelatedManager
@@ -147,6 +147,14 @@ class Setting(WithLines, models.Model):
     class Meta:
         ordering = ["position", "created_at"]
         constraints = [
+            # one owner: a project entry has a folder, a conversation's own
+            # entry has a conversation. Never both — the folder a conversation
+            # entry was written in is the conversation's to know, and a copy
+            # of it on the entry went stale the moment the conversation moved
+            models.CheckConstraint(
+                condition=models.Q(conversation__isnull=True) | models.Q(folder__isnull=True),
+                name="setting_one_owner",
+            ),
             # the title is the identity: the model edits by title, and an
             # unseen title means "create" — unique within a layer
             models.UniqueConstraint(
@@ -205,6 +213,11 @@ class Character(WithLines, models.Model):
     class Meta:
         ordering = ["position", "created_at"]
         constraints = [
+            # one owner, as for Setting
+            models.CheckConstraint(
+                condition=models.Q(conversation__isnull=True) | models.Q(folder__isnull=True),
+                name="character_one_owner",
+            ),
             models.UniqueConstraint(
                 fields=["folder", "name"], condition=models.Q(conversation__isnull=True),
                 name="uniq_folder_character_name",
@@ -263,14 +276,17 @@ class AppSettings(models.Model):
     """
     One row, holding what belongs to the app rather than to any conversation.
 
-    So far that is the generation defaults a new conversation starts from. It
-    is a row and not a settings.py constant because the user sets it from the
-    settings page, and not localStorage because a default that only applies in
-    the browser that set it is not a default.
+    That is the generation defaults a new conversation starts from, and the
+    language the app speaks (core.i18n). They are a row and not a settings.py
+    constant because the user sets them from the settings page, and not
+    localStorage because a default that only applies in the browser that set
+    it is not a default.
     """
 
     id = models.PositiveSmallIntegerField(primary_key=True, default=1)
     gen_defaults = models.JSONField(null=True, blank=True)
+    #: a code from core.i18n.CODES; anything else reads as the default
+    language = models.CharField(max_length=8, default=i18n.DEFAULT)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -289,7 +305,7 @@ class Conversation(models.Model):
     SOURCE_CHOICES = [("web", "web"), ("mcp", "mcp")]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    title = models.CharField(max_length=200, default=ui_text.NEW_CONVERSATION_TITLE)
+    title = models.CharField(max_length=200, default=ui_text.new_conversation_title)
     source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default="web")
     # Hidden from the normal list, never auto-deleted.
     is_archived = models.BooleanField(default=False)
@@ -406,6 +422,11 @@ class Message(models.Model):
     prompt_tokens = models.IntegerField(null=True, blank=True)
     # system rows: which note this is, so each kind is only ever emitted once
     notice_kind = models.CharField(max_length=32, blank=True, default="")
+    # system rows: what happened, as a key and the numbers (core.services.notices),
+    # so the sentence can be made in the reader's language when the row is read.
+    # `content` keeps the sentence as it was written; rows older than this
+    # column have only that.
+    notice = models.JSONField(null=True, blank=True)
     # what the lead model briefed the drawing model with, in natural language
     # ({main, pose, scene, camera, style, notes}) — kept so the transcript can
     # show the intent, not just the resulting tags

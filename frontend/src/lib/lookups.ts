@@ -21,6 +21,6 @@ export interface Lookup {
 export function lookupsText(lookups: Lookup[] | null | undefined): string {
   if (!lookups?.length) return "";
   return lookups
-    .map((run) => [t.lookupQuery((run.queries ?? []).join("，")), run.result].filter(Boolean).join("\n"))
+    .map((run) => [t.lookupQuery((run.queries ?? []).join(t.querySep)), run.result].filter(Boolean).join("\n"))
     .join("\n\n");
 }

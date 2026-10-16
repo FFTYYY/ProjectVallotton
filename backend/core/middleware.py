@@ -1,13 +1,34 @@
 """
 Middleware that has to run outside everything else.
 
-There is one, and it exists for a reason that only shows up at this layer:
-some response headers are not written by the view, they are patched on by
-middleware after the view has returned, and a view cannot take back what has
-not been added yet.
+Two. One exists for a reason that only shows up at this layer: some response
+headers are not written by the view, they are patched on by middleware after
+the view has returned, and a view cannot take back what has not been added
+yet. The other opens the language scope a request speaks in.
 """
 
 from __future__ import annotations
+
+from core import i18n
+
+
+class LanguageScope:
+    """
+    One request, one language.
+
+    Every sentence a view hands back comes from core.ui_text, which asks
+    core.i18n which language the account chose. Inside this scope that
+    question is answered once, with one query, the first time it is asked;
+    without it each sentence would ask the database again, and a request that
+    straddled a change of language could answer half in each.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        with i18n.scope():
+            return self.get_response(request)
 
 
 class DoesNotVaryByWhoAsked:
