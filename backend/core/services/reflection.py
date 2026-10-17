@@ -440,27 +440,16 @@ def _assistant_turn_text(answer: dict, brief: dict) -> str:
     with the draw as the app settled it. The tags are not part of what it
     answered: the app says them in its own turn.
     """
+    own = llm.as_said({"settings": answer.get("settings"), "characters": answer.get("characters")}) or {}
     return json.dumps(
         {
             "reply": answer.get("reply") or "",
-            "settings": [_as_said(e) for e in answer.get("settings") or []],
-            "characters": [_as_said(e) for e in answer.get("characters") or []],
-            "edits": ({k: [_as_said(e) for e in answer["edits"].get(k) or []] for k in ("settings", "characters")}
-                      if isinstance(answer.get("edits"), dict) else None),
+            "settings": own.get("settings") or [],
+            "characters": own.get("characters") or [],
+            "edits": llm.as_said(answer.get("edits")),
             "draw": brief or None,
         },
         ensure_ascii=False,
     )
-
-
-def _as_said(entry: dict) -> dict:
-    """An entry the way the lead wrote it: the tag lists back as one string."""
-    out = dict(entry)
-    for k in ("positive", "negative"):
-        if isinstance(out.get(k), list):
-            out[k] = ", ".join(out[k])
-    if isinstance(out.get("variants"), list):
-        out["variants"] = [_as_said(v) for v in out["variants"]]
-    return out
 
 

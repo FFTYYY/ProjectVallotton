@@ -188,7 +188,8 @@ def _write_character(entry: dict, *, folder: Folder, conv: Conversation, done: l
         _write_fields(existing, entry, now=now)
         existing.save()
         done.append(ui_text.PROPOSAL_CREATED_CHARACTER.format(name=key))
-    else:
+    elif not entry.get("carrier"):
+        # a carrier brings costumes only and leaves its character as it is
         _write_fields(existing, entry, now=now)
         existing.save()
         done.append(ui_text.PROPOSAL_UPDATED_CHARACTER.format(name=key))

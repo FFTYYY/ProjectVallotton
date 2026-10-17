@@ -67,8 +67,9 @@ _STR_LIST = {"type": "array", "items": _STR}
 _LOOKUP = _STR_LIST
 
 #: An entry as the lead writes one: its key, the note, the tags (comma
-#: separated) and the prose. A setting also names its category; a character
-#: carries its variants.
+#: separated) and the prose. A setting also names its category. A costume is
+#: an entry of its own among the characters, keyed `character/costume` --
+#: the key it has everywhere else -- and the app files it under its character.
 ENTRY_FIELDS = ("key", "note", "positive", "negative", "prose")
 _ENTRY_PROPS = {f: _STR for f in ENTRY_FIELDS}
 _SETTING_ENTRY = {
@@ -76,15 +77,10 @@ _SETTING_ENTRY = {
     "required": [*ENTRY_FIELDS, "category"],
     "properties": {**_ENTRY_PROPS, "category": _STR},
 }
-_VARIANT_ENTRY = {
+_CHARACTER_ENTRY = {
     "type": "object", "additionalProperties": False,
     "required": list(ENTRY_FIELDS),
     "properties": dict(_ENTRY_PROPS),
-}
-_CHARACTER_ENTRY = {
-    "type": "object", "additionalProperties": False,
-    "required": [*ENTRY_FIELDS, "variants"],
-    "properties": {**_ENTRY_PROPS, "variants": {"type": "array", "items": _VARIANT_ENTRY}},
 }
 _ENTRIES = {
     "type": "object", "additionalProperties": False,
@@ -355,15 +351,79 @@ def _clean_entry(raw, *, with_category: bool = False, with_variants: bool = Fals
     return out
 
 
+def nest_costumes(items: list[dict]) -> list[dict]:
+    """
+    The characters as the library holds them: a costume written as an entry
+    of its own (`林晚/日常装`) goes under its character, keyed by its title.
+    A costume whose character the answer does not write rides on a carrier
+    (`carrier: True`) that names the character and leaves it as it is.
+    Costumes already nested (the shape answers had before) stay where they are.
+    """
+    out: list[dict] = []
+    owner: dict[str, dict] = {}
+    for item in items:
+        is_project, name, title = library.parse_key(item["key"])
+        if not name:
+            continue
+        if not title:
+            entry = {**item, "variants": list(item.get("variants") or [])}
+            held = owner.get(name)
+            if held is not None and held.get("carrier"):
+                # the costume came first, its character after: one entry
+                held.update({k: v for k, v in entry.items() if k != "variants"})
+                held.pop("carrier", None)
+                held["variants"] += entry["variants"]
+                continue
+            owner[name] = entry
+            out.append(entry)
+            continue
+        held = owner.get(name)
+        if held is None:
+            held = {"key": (library.PROJECT_PREFIX if is_project else "") + name, "carrier": True, "variants": []}
+            owner[name] = held
+            out.append(held)
+        costume = {k: v for k, v in item.items() if k != "variants"}
+        held["variants"].append({**costume, "key": title})
+    return out
+
+
 def _clean_entries(raw) -> dict | None:
     """{settings, characters} out of whatever was sent, or None when empty."""
     if not isinstance(raw, dict):
         return None
     out = {
         "settings": [e for e in (_clean_entry(x, with_category=True) for x in raw.get("settings") or []) if e],
-        "characters": [e for e in (_clean_entry(x, with_variants=True) for x in raw.get("characters") or []) if e],
+        "characters": nest_costumes(
+            [e for e in (_clean_entry(x, with_variants=True) for x in raw.get("characters") or []) if e]),
     }
     return out if out["settings"] or out["characters"] else None
+
+
+def as_said(entries: dict | None) -> dict | None:
+    """
+    {settings, characters} the way the lead writes them, for showing it its
+    own earlier answers: the tags as one string, each costume an entry of its
+    own keyed `character/costume`, and a character the answer did not write
+    (a carrier) not there at all.
+    """
+    if not isinstance(entries, dict):
+        return None
+
+    def said(entry: dict) -> dict:
+        out = {k: v for k, v in entry.items() if k not in ("variants", "carrier")}
+        for k in ("positive", "negative"):
+            if isinstance(out.get(k), list):
+                out[k] = ", ".join(out[k])
+        return out
+
+    characters: list[dict] = []
+    for c in entries.get("characters") or []:
+        if not c.get("carrier"):
+            characters.append(said(c))
+        for v in c.get("variants") or []:
+            title = library.parse_key(str(v.get("key") or ""))[2] or str(v.get("key") or "").strip()
+            characters.append(said({**v, "key": f"{c.get('key')}{library.VARIANT_SEP}{title}"}))
+    return {"settings": [said(e) for e in entries.get("settings") or []], "characters": characters}
 
 
 def _draw_from(raw) -> dict | None:

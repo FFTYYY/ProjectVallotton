@@ -86,8 +86,8 @@ class UsageScenarioTests(SimpleTestCase):
             self.assertNotIn(prompts.USAGE_HEADING, text)
             self.assertNotIn(prompts.USAGE_MARK, text)
         # the neighbours close up: one blank line between the sections around it
-        self.assertIn("使用用户的语言（通常是中文）\n\n## 你要做的事", lead)
-        self.assertIn("不输出解释、说明或其他额外内容。\n\n## 你拿到什么", drawing)
+        self.assertIn("请用用户的语言来写回复（通常是中文）。\n\n## 你每一轮要做的事", lead)
+        self.assertIn("不要输出解释、说明或者其他额外的内容。\n\n## 你拿到什么", drawing)
 
     def test_whitespace_only_counts_as_empty(self):
         with override_settings(LEAD_USAGE_SCENARIO="  \n ", DRAW_USAGE_SCENARIO=" "):
@@ -108,8 +108,8 @@ class UsageScenarioTests(SimpleTestCase):
         with override_settings(LEAD_USAGE_SCENARIO="x", DRAW_USAGE_SCENARIO="y"):
             lead, drawing = prompts.lead(), prompts.drawing()
         self.assertIn('"draw": {\n    "description": "...",', lead)
-        self.assertIn('"expose": ["画风", "苏棠/通勤装", "@天台", "-旧条目"]', lead)
-        self.assertIn("`{{tag}}`是乘`1.1025`", drawing)
+        self.assertIn('"expose": ["画风", "苏棠/通勤装", "@天台"]', lead)
+        self.assertIn("`{{tag}}`就是乘以`1.1025`", drawing)
         self.assertIn('"subjects": [{"key": "苏棠", "center_x": null, "center_y": null}]', drawing)
 
     def test_neither_template_sets_the_variables(self):

@@ -358,7 +358,7 @@ class PromptTests(SimpleTestCase):
 
     #: the one sentence of lead.txt and the one of patrol.txt that carry
     #: PROSE_LANGUAGE_MARK, with the Chinese word in place
-    LEAD_NOTE_ZH = "注释用" + wording.PROSE_LANGUAGE["zh"] + "说明这是什么样的画风"
+    LEAD_NOTE_ZH = "画风条目的注释，请用" + wording.PROSE_LANGUAGE["zh"] + "说明这是什么样的画风"
     PATROL_NOTE_ZH = "条目的" + wording.PROSE_LANGUAGE["zh"] + "注释是人写的"
 
     @staticmethod
@@ -369,7 +369,7 @@ class PromptTests(SimpleTestCase):
         with override_settings(**self.SCENARIO), i18n.use("zh"):
             self.assertEqual(prompts.lead(), (FIXTURES / "prompt_lead.txt").read_text(encoding="utf-8"))
             self.assertEqual(prompts.drawing(), (FIXTURES / "prompt_drawing.txt").read_text(encoding="utf-8"))
-            self.assertIn("通常不要用 emoji。" + wording.REPLY_LANGUAGE["zh"] + "\n", prompts.lead())
+            self.assertIn("通常不要用emoji。" + wording.REPLY_LANGUAGE["zh"] + "\n", prompts.lead())
             self.assertIn(self.LEAD_NOTE_ZH, prompts.lead())
             self.assertIn(self.PATROL_NOTE_ZH, prompts.patrol())
 
@@ -380,7 +380,7 @@ class PromptTests(SimpleTestCase):
             with i18n.use("en"):
                 en_lead, en_patrol = prompts.lead(), prompts.patrol()
         self.assertNotEqual(en_lead, zh_lead)
-        self.assertIn("通常不要用 emoji。" + wording.REPLY_LANGUAGE["en"] + "\n", en_lead)
+        self.assertIn("通常不要用emoji。" + wording.REPLY_LANGUAGE["en"] + "\n", en_lead)
         self.assertIn(self._in(self.LEAD_NOTE_ZH, "en"), en_lead)
         back = (en_lead.replace(wording.REPLY_LANGUAGE["en"], wording.REPLY_LANGUAGE["zh"], 1)
                 .replace(self._in(self.LEAD_NOTE_ZH, "en"), self.LEAD_NOTE_ZH, 1))
@@ -416,8 +416,8 @@ class PromptTests(SimpleTestCase):
                              prompts.entries()):
                     for mark in marks:
                         self.assertNotIn(mark, text, code)
-                self.assertIn("`{{tag}}`是乘`1.1025`", prompts.drawing())
-                self.assertIn('"expose": ["画风", "苏棠/通勤装", "@天台", "-旧条目"]', prompts.lead())
+                self.assertIn("`{{tag}}`就是乘以`1.1025`", prompts.drawing())
+                self.assertIn('"expose": ["画风", "苏棠/通勤装", "@天台"]', prompts.lead())
 
     def test_the_files_carry_each_marker_once_and_not_the_words(self):
         lead, patrol = prompts.load("lead"), prompts.load("patrol")

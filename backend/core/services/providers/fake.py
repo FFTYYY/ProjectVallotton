@@ -236,6 +236,11 @@ def _wants_lookup(schema: dict, messages: list[dict]) -> bool:
     )
 
 
+
+#: the app's note on a drawing, its id caught: built from the wording itself
+#: so that rewording the note cannot quietly lose the id
+_DRAW_NOTE = re.compile(re.escape(wording.SYSTEM_NOTE_DRAW).replace(re.escape("{id}"), r"(\w+)"))
+
 def _last_draw_id(messages: list[dict]) -> str:
     """The id of the newest drawing in the history, read off the app's note."""
     for m in reversed(messages or []):
@@ -244,7 +249,7 @@ def _last_draw_id(messages: list[dict]) -> str:
             p.get("text") or "" for p in (content or []) if isinstance(p, dict)
         ]
         for text in texts:
-            found = re.search(r"本次绘图调用的id为 (\w+)", text or "")
+            found = _DRAW_NOTE.search(text or "")
             if found:
                 return found.group(1)
     return ""

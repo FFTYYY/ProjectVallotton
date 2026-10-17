@@ -65,7 +65,15 @@ def split_tags(raw) -> list[str]:
         if not p:
             continue
         key = novelai.tag_key(p)
+        if not key:
+            # a weight on its own (`1.5::`, `::`): never a repeat
+            out.append(p)
+            continue
         if key in seen:
+            # the repeat goes, the weight it opens or closes stays
+            rest = novelai.weight_markers(p)
+            if rest:
+                out.append(rest)
             continue
         seen.add(key)
         out.append(p)
@@ -389,6 +397,14 @@ def _write_fields(obj, item: dict, *, now) -> None:
     lines_by_model(obj, now=now)
 
 
+def _copy_fields(obj, source) -> None:
+    """A character's text and lines copied from another, as they stand."""
+    if source is None:
+        return
+    for f in ("description", "positive", "negative", "prose", "text_edited_at", "lines_ai_at", "lines_tried_at"):
+        setattr(obj, f, copy.deepcopy(getattr(source, f)))
+
+
 def write_conversation_entries(conversation: Conversation, seq: int, settings: list[dict],
                                characters: list[dict]) -> list[str]:
     """
@@ -419,15 +435,27 @@ def write_conversation_entries(conversation: Conversation, seq: int, settings: l
         if not name:
             continue
         existing = _own(Character, conversation, name=name)
-        if existing is None:
-            pos = (conversation.own_characters.aggregate(m=Max("position"))["m"] or 0) + 1
-            existing = Character(folder=None, conversation=conversation, name=name, position=pos)
-            done.append(f"+ {name}")
+        if item.get("carrier"):
+            # only costumes were written: the character stays as it is, and
+            # one this conversation does not have yet starts as a copy of the
+            # project's, the way the lead overrides a project entry
+            if existing is None:
+                pos = (conversation.own_characters.aggregate(m=Max("position"))["m"] or 0) + 1
+                existing = Character(folder=None, conversation=conversation, name=name, position=pos)
+                _copy_fields(existing, find_switched_on_character(conversation, name))
+                existing.origin_seq = seq
+                existing.save()
+                done.append(f"+ {name}")
         else:
-            done.append(f"~ {name}")
-        _write_fields(existing, item, now=now)
-        existing.origin_seq = seq
-        existing.save()
+            if existing is None:
+                pos = (conversation.own_characters.aggregate(m=Max("position"))["m"] or 0) + 1
+                existing = Character(folder=None, conversation=conversation, name=name, position=pos)
+                done.append(f"+ {name}")
+            else:
+                done.append(f"~ {name}")
+            _write_fields(existing, item, now=now)
+            existing.origin_seq = seq
+            existing.save()
         made: list[CharacterVariant] = []
         for v in item.get("variants") or []:
             _, _, title = parse_key(str(v.get("key") or ""))
@@ -471,8 +499,12 @@ def _merged(earlier: dict | None, item: dict) -> dict:
 
 
 def _merged_character(earlier: dict | None, item: dict) -> dict:
-    """The same for a character; its costumes merge one by one, by title."""
-    out = _merged(earlier, item)
+    """The same for a character; its costumes merge one by one, by title. A
+    carrier (costumes only) leaves the character as the turn had it."""
+    if item.get("carrier"):
+        out = dict(earlier) if earlier else {"key": item.get("key"), "carrier": True}
+    else:
+        out = _merged(earlier, item)
     costumes = dict((earlier or {}).get("variants") or {})
     for v in item.get("variants") or []:
         raw = str(v.get("key") or "").strip()
@@ -508,10 +540,11 @@ class Staged:
         self.settings, self.characters = other.settings, other.characters
         self.edit_settings, self.edit_characters = other.edit_settings, other.edit_characters
 
-    def add(self, answer: dict) -> None:
+    def add(self, answer: dict, conversation: Conversation | None = None) -> None:
         """Lay one answer's writes (the lead's, or a reflection round's) over
         what the turn has written so far. Outside a project an edit has
-        nowhere to go but this conversation."""
+        nowhere to go but this conversation. Given the conversation, an entry
+        written in the other kind's list goes where its key already is."""
         settings = list(answer.get("settings") or [])
         characters = list(answer.get("characters") or [])
         edits = answer.get("edits") or {}
@@ -519,6 +552,12 @@ class Staged:
             settings += list(edits.get("settings") or [])
             characters += list(edits.get("characters") or [])
             edits = {}
+        if conversation is not None:
+            settings, characters = self._by_kind(conversation, settings, characters, project=False)
+            if edits:
+                es, ec = self._by_kind(conversation, list(edits.get("settings") or []),
+                                       list(edits.get("characters") or []), project=True)
+                edits = {"settings": es, "characters": ec}
         for item in settings:
             key = parse_key(str(item.get("key") or ""))[1]
             if key:
@@ -535,6 +574,52 @@ class Staged:
             name = parse_key(str(item.get("key") or ""))[1]
             if name:
                 self.edit_characters[name] = _merged_character(self.edit_characters.get(name), item)
+
+    def _by_kind(self, conversation: Conversation, settings: list[dict], characters: list[dict], *,
+                 project: bool) -> tuple[list[dict], list[dict]]:
+        """
+        A key names one entry in its layer whatever list it is written in:
+        a character-list entry whose key is already a setting there, and no
+        character, is that setting (keeping its category), and the other way
+        round. A character written with costumes is a character.
+        """
+        folder = conversation.folder
+
+        def setting_at(key: str):
+            if project:
+                staged = self.edit_settings.get(key)
+                return staged if staged is not None else _in_chain(Setting, folder, title=key)
+            staged = self.settings.get(key)
+            if staged is not None:
+                return staged
+            return find_switched_on_setting(conversation, key) or _own(Setting, conversation, title=key)
+
+        def character_at(key: str):
+            if project:
+                return self.edit_characters.get(key) or _in_chain(Character, folder, name=key)
+            return (self.characters.get(key) or find_switched_on_character(conversation, key)
+                    or _own(Character, conversation, name=key))
+
+        keep_s: list[dict] = []
+        keep_c: list[dict] = []
+        for item in characters:
+            key = parse_key(str(item.get("key") or ""))[1]
+            setting = setting_at(key) if key and not item.get("variants") and not item.get("carrier") else None
+            if setting is not None and character_at(key) is None:
+                category = setting.get("category") if isinstance(setting, dict) else setting.category
+                moved = {k: v for k, v in item.items() if k not in ("variants", "carrier")}
+                keep_s.append({**moved, "category": str(item.get("category") or category or "")})
+                log.info("entry %r was written among the characters but is a setting; filed as one", key)
+            else:
+                keep_c.append(item)
+        for item in settings:
+            key = parse_key(str(item.get("key") or ""))[1]
+            if key and setting_at(key) is None and character_at(key) is not None:
+                keep_c.append({k: v for k, v in item.items() if k != "category"})
+                log.info("entry %r was written among the settings but is a character; filed as one", key)
+            else:
+                keep_s.append(item)
+        return keep_s, keep_c
 
     def conversation_lists(self) -> tuple[list[dict], list[dict]]:
         """The conversation's entries in the shape write_conversation_entries takes."""
@@ -592,7 +677,14 @@ class Staged:
             return None
         item = self.characters[key]
         existing = _own(Character, conversation, name=key)
-        character = self._entry(existing, "character", key, item)
+        if item.get("carrier"):
+            # costumes only: the character as the library has it
+            base = existing or find_switched_on_character(conversation, key)
+            if base is None:
+                return None
+            character = self._entry(existing, "character", key, entry_dict(base))
+        else:
+            character = self._entry(existing, "character", key, item)
         if not title:
             return [character], False
         stored = existing.variants.filter(title=title).first() if existing is not None else None
@@ -620,7 +712,7 @@ def unwritten_exposure(conversation: Conversation, answer: dict, staged: Staged 
     if not keys:
         return []
     turn = staged.copy() if staged is not None else Staged(seq=0, in_project=conversation.folder is not None)
-    turn.add(answer)
+    turn.add(answer, conversation)
     missing: list[str] = []
     for raw in keys:
         hit = turn.entries_for(conversation, raw)
@@ -756,7 +848,8 @@ def overlay_from_edits(edits: dict | None) -> dict[str, dict]:
         _, name, _ = parse_key(str(item.get("key") or ""))
         if not name:
             continue
-        out[name] = item
+        if not item.get("carrier"):
+            out[name] = item
         for v in item.get("variants") or []:
             _, _, title = parse_key(str(v.get("key") or ""))
             title = title or str(v.get("key") or "").strip()

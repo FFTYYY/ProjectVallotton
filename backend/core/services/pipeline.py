@@ -291,12 +291,13 @@ def assistant_answer(m: Message) -> str:
     already made is how it avoids making them again.
     """
     raw = m.model_raw if isinstance(m.model_raw, dict) else {}
+    own = llm.as_said({"settings": raw.get("settings"), "characters": raw.get("characters")}) or {}
     return json.dumps(
         {
             "reply": m.content or "",
-            "settings": raw.get("settings") or [],
-            "characters": raw.get("characters") or [],
-            "edits": raw.get("edits") or None,
+            "settings": own.get("settings") or [],
+            "characters": own.get("characters") or [],
+            "edits": llm.as_said(raw.get("edits")) or None,
             # null is not our invention — it is the schema's own answer for
             # "no picture this turn", and what the model writes when it means it
             "draw": m.draw_brief or None,
@@ -962,7 +963,7 @@ def _write_library(conversation: Conversation, message: Message, result: dict) -
     Returns the project overlay the answer's edits make.
     """
     staged = library.Staged(seq=message.seq, in_project=conversation.folder is not None)
-    staged.add(result)
+    staged.add(result, conversation)
     overlay = _overlay(conversation, staged)
     _commit_library(conversation, message, staged)
     return overlay
@@ -1038,7 +1039,8 @@ def _drop_noop_edits(conversation: Conversation, edits: dict) -> dict | None:
     for item in edits.get("characters") or []:
         _, name, _ = library.parse_key(str(item.get("key") or ""))
         existing = library.find_character(conversation, library.PROJECT_PREFIX + name)
-        if existing is None or library.layer_of(existing) != "project" or not same(existing, item):
+        if existing is None or library.layer_of(existing) != "project" or (
+                not item.get("carrier") and not same(existing, item)):
             chars_out.append(item)
             continue
         stored = {v.title: v for v in existing.variants.all()}
@@ -1223,7 +1225,7 @@ def _draw_turn(conversation: Conversation, message: Message, result: dict, stage
                 # kept, they go with it
                 before = staged.copy()
                 try:
-                    staged.add(verdict)
+                    staged.add(verdict, conversation)
                     lay = _overlay(conversation, staged)
                     spec = dict(verdict.get("draw") or {})
                     own_id = (current.nai_prompts or {}).get("draw_id") or ""
@@ -1342,7 +1344,7 @@ def run_generation(message_id) -> None:
             # turn's pictures are settled -- after reflection, or when the
             # turn is stopped or fails. A reflection round's writes join the
             # turn's only if its picture is kept.
-            staged.add(result)
+            staged.add(result, conversation)
             try:
                 produced = _draw_turn(conversation, message, result, staged, grok_messages)
             finally:

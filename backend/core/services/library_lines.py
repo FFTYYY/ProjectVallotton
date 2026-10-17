@@ -62,10 +62,19 @@ def write(obj) -> bool:
         log.warning("patrol failed on %s %s: %s", model.__name__, obj.id, str(exc)[:200])
         model.objects.filter(id=obj.id).update(lines_tried_at=tried)
         return False
-    if not (filled["positive"] or filled["prose"]):
-        log.warning("patrol gave nothing for %s %s; the entry waits", model.__name__, obj.id)
-        model.objects.filter(id=obj.id).update(lines_tried_at=tried)
-        return False
+    if not (filled["positive"] or filled["negative"] or filled["prose"]):
+        if obj.positive or obj.negative or obj.prose.strip():
+            # lines it had, none came back: a bad answer, not a note with
+            # nothing to paint -- the lines stay and the entry waits
+            log.warning("patrol gave nothing for %s %s; the entry waits", model.__name__, obj.id)
+            model.objects.filter(id=obj.id).update(lines_tried_at=tried)
+            return False
+        # a note with nothing to paint (a list of names, a backstory): it has
+        # been looked at, and stands as it is. Left undated it would be sent
+        # back every RETRY_AFTER for as long as the note exists.
+        model.objects.filter(id=obj.id).update(lines_ai_at=tried, lines_tried_at=tried)
+        log.info("patrol found nothing to paint in %s %s; the note stands alone", model.__name__, obj.id)
+        return True
     obj.positive = filled["positive"]
     obj.negative = filled["negative"]
     obj.prose = filled["prose"]

@@ -229,6 +229,19 @@ class PatrolTests(TestCase):
         self.assertTrue(c.lines_stale, "the entry waits for a real look")
         self.assertIsNotNone(c.lines_tried_at)
 
+    def test_a_note_with_nothing_to_paint_is_looked_at_once_and_left_be(self):
+        """A memo entry (a list of names) has nothing to paint: the patrol's
+        empty answer is its answer, not a failure to retry every ten minutes."""
+        s = Setting.objects.create(folder=self.folder, title="人名登记", content="女主林晚，闺蜜苏棠，房东姓周",
+                                   position=1, text_edited_at=timezone.now())
+        self.assertTrue(s.lines_stale)
+        with mock.patch.object(library_lines.llm, "fill_entry", return_value=_fill("")):
+            self.assertTrue(library_lines.write(s))
+        s.refresh_from_db()
+        self.assertEqual((s.positive, s.negative, s.prose), ([], [], ""))
+        self.assertFalse(s.lines_stale)
+        self.assertNotIn(s.id, [o.id for o in library_lines.stale(limit=10)])
+
     def test_what_the_lead_writes_is_never_waiting_tags_or_no_tags(self):
         # the lead answers for its entries and is not told a patrol exists:
         # an entry it made without tags stays without tags

@@ -3601,11 +3601,9 @@ class SchemaProseSaysWhatTheSampleCannotTests(TestCase):
 
     def test_every_array_field_is_named_as_a_list(self):
         prose = self._prose(llm.LEAD_SCHEMA)
-        for field in ("settings", "characters", "characters[].variants",
-                      "edits.settings", "edits.characters", "edits.characters[].variants",
-                      "draw.expose"):
+        for field in ("settings", "characters", "edits.settings", "edits.characters", "draw.expose"):
             self.assertIn(field, prose)
-        self.assertIn("0 个、1 个或多个", prose)
+        self.assertIn("0个、1个或者多个", prose)
 
     def test_a_capped_list_says_its_cap(self):
         """
@@ -3630,11 +3628,11 @@ class SchemaProseSaysWhatTheSampleCannotTests(TestCase):
                 },
             },
         }
-        self.assertIn("items（最多 3 个）", self._prose(capped))
+        self.assertIn("items（最多3个）", self._prose(capped))
 
     def test_the_fields_whose_null_is_the_ordinary_answer_say_so(self):
         prose = self._prose(llm.LEAD_SCHEMA)
-        self.assertIn("可以直接写 null", prose)
+        self.assertIn("可以直接写null", prose)
         self.assertIn("edits、draw", prose)
 
     def test_a_nullable_scalar_carries_it_inline(self):

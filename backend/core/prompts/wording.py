@@ -42,11 +42,11 @@ ENTRY_PROSE_LABEL = "描述"
 ENTRY_EMPTY = "（还没有内容）"
 ENTRY_KIND_SETTING = "设定"
 ENTRY_KIND_CHARACTER = "角色"
-ENTRY_KIND_VARIANT = "造型"
+ENTRY_KIND_VARIANT = "变体"
 #: where an entry came from, beside its kind
 ENTRY_FROM_PROJECT = "项目层"
 #: the turn's drawing id, as the conversation shows it to the lead
-ENTRY_FROM_LEAD = "你在绘图 {id} 那一轮写的"
+ENTRY_FROM_LEAD = "你在绘图{id}那一轮写的"
 #: written in a turn that drew nothing
 ENTRY_FROM_LEAD_NO_DRAW = "你写的"
 ENTRY_FROM_USER = "用户建的"
@@ -57,7 +57,7 @@ DRAW_TEXT_HEADING = "【要画进画面的文字】"
 DRAW_SIZE_HEADING = "【画幅】"
 DRAW_ENTRIES_HEADING = "【暴露的条目】"
 EXPOSURE_NONE = "（这一张没有暴露任何条目）"
-DRAW_NO_DESCRIPTION = "（主 AI 没有写描述，只暴露了条目）"
+DRAW_NO_DESCRIPTION = "（主AI没有写描述，只暴露了条目）"
 
 
 # ==========================================================================
@@ -79,16 +79,16 @@ LIBRARY_NONE = "【本轮用户没有选中任何资料库条目】"
 #: entries), then the limit and the counts, then the prompt as it would go
 #: to NovelAI.
 REVIEW_LIMIT_HEADING = "【长度】"
-REVIEW_LIMIT_LINE = "NovelAI 的上限是 {limit} 个 token，{rule}。现在：{counts}。"
-REVIEW_LIMIT_OVER = "超出 {over} 个 token，必须减掉。"
+REVIEW_LIMIT_LINE = "NovelAI的上限是{limit}个token，{rule}。现在的长度是：{counts}。"
+REVIEW_LIMIT_OVER = "一共超出了{over}个token，必须减掉。"
 REVIEW_LIMIT_FITS = "没有超出。"
 REVIEW_RULE = {
     "total": "整张图的提示词和各主体的提示词合在一起计数，负面提示词单独计数",
     "each": "整张图的提示词、各主体的提示词、负面提示词各自计数",
 }
-REVIEW_COUNT_BASE = "整张图 {n}"
-REVIEW_COUNT_CHAR = "主体「{key}」{n}"
-REVIEW_COUNT_NEGATIVE = "负面 {n}"
+REVIEW_COUNT_BASE = "整张图{n}个"
+REVIEW_COUNT_CHAR = "主体「{key}」{n}个"
+REVIEW_COUNT_NEGATIVE = "负面{n}个"
 REVIEW_COUNT_SEP = "、"
 REVIEW_PROMPTS_HEADING = "【提示词】"
 REVIEW_PROMPT_BASE = "整张图：{text}"
@@ -98,11 +98,11 @@ REVIEW_PROMPT_NEGATIVE = "负面：{text}"
 
 #: The first line of the library block: which layer a proposal may go to.
 LIBRARY_IN_PROJECT = (
-    "（这次对话属于项目「{project}」。项目层的条目名字前带「@」，这个项目里所有对话都能用；"
-    "没有「@」的是这次对话自己的条目）"
+    "（这次对话属于项目「{project}」。项目层的条目，键的前面带「@」，这个项目里的所有对话都能用；"
+    "键的前面没有「@」的，是这次对话自己的条目。）"
 )
-LIBRARY_NO_PROJECT = "（这次对话不属于任何项目，你记下的条目只存在这次对话里）"
-LIBRARY_EMPTY = "（现在还没有任何条目）"
+LIBRARY_NO_PROJECT = "（这次对话不属于任何项目，所以你记下的条目只存在于这次对话里。）"
+LIBRARY_EMPTY = "（现在还没有任何条目。）"
 
 # ==========================================================================
 # The person's language, by core.i18n code
@@ -116,8 +116,8 @@ LIBRARY_EMPTY = "（现在还没有任何条目）"
 
 #: lead.txt 「你的性格」: the sentence that says what language replies are in
 REPLY_LANGUAGE = {
-    "zh": "使用用户的语言（通常是中文）",
-    "en": "使用用户的语言（通常是英文）。资料库条目的键和注释也用英文写",
+    "zh": "请用用户的语言来写回复（通常是中文）。",
+    "en": "请用用户的语言来写回复（通常是英文）。资料库条目的键和注释也请用英文来写。",
 }
 #: lead.txt 「正文」 and patrol.txt: the word for the language of entry prose
 PROSE_LANGUAGE = {
@@ -135,9 +135,10 @@ LOOKUP_LAST = "这一轮的查询次数已用完，请直接给出正式回答�
 #: model answers again in full.
 EXPOSE_MISSING = (
     "【应用检查】（应用发现的问题，不是用户说的话）\n"
-    "`expose`里这些条目资料库里没有，这次回答里也没有写：{keys}。"
-    "要用就在`settings`或`characters`里把它写出来（造型写在角色的`variants`里）；用不着就从`expose`里去掉。"
-    "整份回答重新给一遍，其余照旧。"
+    "你在`expose`里列出的这些条目，资料库里没有，这次回答里也没有写：{keys}。"
+    "如果这一张要用它们，那么请把它们写出来：设定写在`settings`里；角色和变体写在`characters`里，"
+    "变体单独写成一项，键写成「角色名/变体名」，如果它的角色在资料库里也没有，那么角色也要一起写。"
+    "如果用不着，那么请把它们从`expose`里去掉。请把整份回答重新给一遍，其余的部分照旧。"
 )
 
 
@@ -171,16 +172,16 @@ SYSTEM_NOTE_PLAIN = SYSTEM_NOTE_OPEN + "]"
 #: Names one whole drawing — the brief, the tags made from it, and the pictures
 #: that came back — so a later turn can point at an earlier picture and be
 #: understood.
-SYSTEM_NOTE_DRAW = SYSTEM_NOTE_OPEN + "本次绘图调用的id为 {id}]"
+SYSTEM_NOTE_DRAW = SYSTEM_NOTE_OPEN + "这次绘图的编号是{id}。]"
 #: …which entries that drawing exposed, by key ({keys} joined with 、), and
 #: the tags the drawing model made of that answer.
 APP_NOTE_EXPOSED = "这次绘图暴露给绘图AI的条目：{keys}"
-APP_NOTE_PROMPTS = "绘图AI实际发送给NovelAI的prompts："
+APP_NOTE_PROMPTS = "这次绘图实际发给NovelAI的提示词："
 #: …and the pictures that came back.
-APP_NOTE_IMAGES = "以下是实际生成的图片："
+APP_NOTE_IMAGES = "下面是实际生成的图片："
 #: A reference the user gave that is too far back to still ride along.
 #: {n} = how many of that turn's pictures were left out.
-APP_NOTE_REFERENCES_SKIPPED = "用户上一条消息里还有 {n} 张参考图，因为太靠前没有附上。"
+APP_NOTE_REFERENCES_SKIPPED = "用户上一条消息里还有{n}张参考图，因为它们的位置太靠前，所以没有附上。"
 
 #: Inside a reflection round only, carrying the pictures that round produced.
 #: A label: what the model should DO about them is lead_reflection.txt's business.
@@ -197,7 +198,7 @@ EMPTY_USER_MESSAGE = "(空消息)"
 FILL_FOR_SETTING = "设定「{title}」（类别：{category}）"
 FILL_CATEGORY_OTHER = "其他"
 FILL_FOR_CHARACTER = "角色「{name}」（不随衣着改变的样子）"
-FILL_FOR_VARIANT = "角色「{name}」的造型「{title}」（角色的变体：姿势、服装、表情等）"
+FILL_FOR_VARIANT = "角色「{name}」的变体「{title}」（角色的某一种样子，例如一套服装、一种姿势、一种表情等）"
 FILL_CURRENT = "现在的内容："
 FILL_NONE_YET = "（空）"
 
@@ -224,7 +225,7 @@ TOOL_TAGS_NONE = "（没有匹配的标签）"
 #: listed as a hit is how a prompt picks up a tag about something else.
 TOOL_TAGS_PARTIAL = "（以下只匹配了其中一部分词）"
 #: When more queries arrived than one call carries. {n} = danbooru.MAX_QUERIES.
-TOOL_TAGS_TRIMMED = "（只查了前 {n} 个词，后面的没查）"
+TOOL_TAGS_TRIMMED = "（只查了前{n}个词，后面的词没有查）"
 #: When the call carried no query at all.
 TOOL_TAGS_NO_QUERIES = "（这次调用没有给任何查询词）"
 
@@ -237,14 +238,14 @@ TOOL_TAGS_NO_QUERIES = "（这次调用没有给任何查询词）"
 # ==========================================================================
 
 TITLE_SYSTEM = (
-    "为下面的对话写一个简短标题，直接输出标题本身，不要引号、"
-    "不要标点结尾、不要任何解释。语言与对话一致，最多 12 个字。"
+    "请为下面的对话写一个简短的标题。请直接输出标题本身：不要加引号，结尾不要加标点，"
+    "也不要写任何解释。标题的语言要和对话一致，最多12个字。"
 )
 TITLE_USER = "用户：{user}\n助手：{reply}"
 #: appended to TITLE_SYSTEM: the title in the language the account speaks
 #: (the conversation alone did not settle it: an English conversation still
 #: came back with a Chinese title). One value per language, like REPLY_LANGUAGE.
-TITLE_LANGUAGE = {"zh": "", "en": "标题用英文。"}
+TITLE_LANGUAGE = {"zh": "", "en": "标题请用英文来写。"}
 #: stand-in when the first user turn was an image with no words
 TITLE_IMAGE_PLACEHOLDER = "(图片)"
 
@@ -269,8 +270,8 @@ TITLE_IMAGE_PLACEHOLDER = "(图片)"
 
 SCHEMA_PROSE_HEADING = "## 输出格式（严格遵守）"
 SCHEMA_PROSE_INTRO = (
-    "只输出一个 json 对象，不要输出任何别的内容——没有前言、没有解释、"
-    "没有 ``` 代码围栏。字段名和嵌套层级要与下面这个样例一致："
+    "你只能输出一个json对象，不要输出任何别的内容：不要写前言，不要写解释，也不要加```代码围栏。"
+    "字段名和嵌套的层级必须和下面这个样例一致（字段的先后顺序不重要）："
 )
 
 #: Printed under the skeleton whenever the schema has array fields. A sample
@@ -280,23 +281,23 @@ SCHEMA_PROSE_INTRO = (
 #: {fields} = every array path in the schema, joined with 、 — e.g.
 #: "edits.settings、edits.characters、edits.characters[].variants".
 SCHEMA_PROSE_LISTS = (
-    "方括号里是列表：可以放 0 个、1 个或多个长成那样的对象，"
-    "样例里只画一个是为了说明形状。这些字段是列表：{fields}。"
+    "方括号表示列表：一个列表里可以放0个、1个或者多个和样例形状相同的元素；"
+    "样例里只画了一个，只是为了说明它的形状。下面这些字段是列表：{fields}。"
 )
 
 #: How a capped list is named inside SCHEMA_PROSE_LISTS.
 #: {field} = the path, {cap} = the schema's maxItems.
-SCHEMA_PROSE_LIST_CAP = "{field}（最多 {cap} 个）"
+SCHEMA_PROSE_LIST_CAP = "{field}（最多{cap}个）"
 
 #: Printed when some field accepts null. For `draw` and `edits` the null case
 #: is the ordinary one — no picture this turn, no library changes — and the
 #: skeleton draws them as full objects, so without this line the commonest
 #: answer looks unavailable.
 #: {fields} = every nullable object/array path, joined with 、.
-SCHEMA_PROSE_NULLABLE = "这些字段可以直接写 null：{fields}。"
+SCHEMA_PROSE_NULLABLE = "下面这些字段可以直接写null：{fields}。"
 SCHEMA_PROSE_OUTRO = (
-    "尖括号是占位说明，替换成真正的值。没有内容的字段，填空字符串或者整个不写"
-    "都可以，两种读起来是一样的；但不要改字段名，也不要增加字段。"
+    "尖括号里是占位说明，请替换成真正的值。如果某个字段没有内容，那么请按它的类型填空字符串或者空列表"
+    "（如果整个不写这个字段，那么应用也会照这样理解）。请不要改字段名，也不要增加字段。"
 )
 
 

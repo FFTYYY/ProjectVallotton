@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 import secrets
 import threading
 import time
@@ -90,12 +91,17 @@ CONVENTION_WORDS = frozenset({
 })
 
 # Standard quality negative, always appended (the drawing model only supplies
-# content-specific negatives on top of this).
+# content-specific negatives on top of this). It began as NovelAI's own
+# "Heavy" preset, which is made for NovelAI's house style and so also pushes
+# away film grain, chromatic aberration, dithering, halftone, screentone and
+# negative space -- looks a style entry asks for by name, and the empty space
+# a picture leaves for its text. Those are gone: what stays is about quality
+# and stray marks only. A word of it the picture's positive asks for is left
+# out of that picture's negative all the same (merge_negative).
 DEFAULT_NEGATIVE = (
-    "lowres, artistic error, film grain, scan artifacts, worst quality, "
-    "bad quality, jpeg artifacts, very displeasing, chromatic aberration, "
-    "dithering, halftone, screentone, multiple views, logo, too many "
-    "watermarks, negative space, blank page"
+    "lowres, artistic error, scan artifacts, worst quality, bad quality, "
+    "jpeg artifacts, very displeasing, multiple views, logo, too many "
+    "watermarks, blank page"
 )
 
 
@@ -298,16 +304,54 @@ def without_default_negative(negative_prompt: str) -> str:
                      if t.strip() and t.strip().lower() not in default)
 
 
-def merge_negative(negative_prompt: str) -> str:
-    """The negative with the default negative behind it, each word once."""
+#: a piece that opens a weight: `1.5::rain`, `-1::hat`
+_OPENS_WEIGHT = re.compile(r"^\s*-?\d+(?:\.\d+)?::")
+
+
+def weight_markers(piece: str) -> str:
+    """
+    What has to stay of a piece when its tag goes (a repeat, or a tag this
+    picture takes out): the weight it opens (`1.5::rain` leaves `1.5::`) or
+    the weight it closes (`night ::` leaves `::`). A weight written across
+    several tags (`1.5::rain, night ::`) is cut into pieces at the commas;
+    dropping the piece that closes it would let 1.5 run on to the end of the
+    prompt. A piece that opens and closes its own weight (`1.2::rim light::`)
+    leaves nothing.
+    """
+    p = (piece or "").strip()
+    opens = _OPENS_WEIGHT.match(p)
+    closes = p.endswith("::")
+    if opens and closes and len(p) > len(opens.group(0)):
+        return ""
+    if opens:
+        return opens.group(0).strip()
+    return "::" if closes else ""
+
+
+def merge_negative(negative_prompt: str, positive: str = "") -> str:
+    """The negative with the default negative behind it, each word once. A
+    default word the positive asks for (a style entry's `film grain`, a
+    `multiple views` sheet) stays out: the same word on both sides only
+    fights itself."""
+    asked = {tag_key(t) for t in (positive or "").split(",")} - {""}
     out: list[str] = []
     seen: set[str] = set()
-    for word in [t.strip() for t in (negative_prompt or "").split(",")] + \
-            [t.strip() for t in DEFAULT_NEGATIVE.split(",")]:
+    picture = [t.strip() for t in (negative_prompt or "").split(",")]
+    default = [t.strip() for t in DEFAULT_NEGATIVE.split(",") if tag_key(t) not in asked]
+    for word in picture + default:
+        if not word:
+            continue
         key = tag_key(word)
-        if word and key not in seen:
-            seen.add(key)
+        if not key:
             out.append(word)
+            continue
+        if key in seen:
+            rest = weight_markers(word)
+            if rest:
+                out.append(rest)
+            continue
+        seen.add(key)
+        out.append(word)
     return ", ".join(out)
 
 
@@ -323,7 +367,8 @@ def _build_payload(
     sizes = band["sizes"]
     width, height = sizes.get(size, sizes["portrait"])
     base_prompt = with_quality(base_prompt)
-    negative = merge_negative(negative_prompt)
+    negative = merge_negative(negative_prompt, ", ".join(
+        [base_prompt] + [str(item.get("prompt") or "") for item in character_prompts]))
 
     char_captions = []
     use_coords = False

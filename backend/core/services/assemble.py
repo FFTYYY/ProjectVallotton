@@ -116,8 +116,16 @@ def _apply(base: list[str], change: dict | None, which: str) -> list[str]:
     """An entry's tag list with this picture's removals and additions."""
     if not change:
         return split_tags(base)
-    gone = {novelai.tag_key(t) for t in change.get(f"remove_{which}") or []}
-    kept = [t for t in base if novelai.tag_key(t) not in gone]
+    gone = {novelai.tag_key(t) for t in change.get(f"remove_{which}") or []} - {""}
+    kept: list[str] = []
+    for t in base:
+        if novelai.tag_key(t) in gone:
+            # the tag goes, the weight it opens or closes stays
+            rest = novelai.weight_markers(t)
+            if rest:
+                kept.append(rest)
+        else:
+            kept.append(t)
     return split_tags(kept + list(change.get(f"add_{which}") or []))
 
 
@@ -241,8 +249,8 @@ def assemble(exposed: list[dict], answer: dict, *, text: str = "", size_hint: st
     if text:
         base = glue([base, TEXT_PREFIX + text.strip()])
 
-    negative = novelai.merge_negative(", ".join(split_tags(
-        [t for s in settings for t in s["negative"]] + list(answer.get("negative") or []))))
+    negative_own = ", ".join(split_tags(
+        [t for s in settings for t in s["negative"]] + list(answer.get("negative") or [])))
 
     order = [s["key"] for s in answer.get("subjects") or []]
     centers = {s["key"]: s for s in answer.get("subjects") or []}
@@ -260,6 +268,7 @@ def assemble(exposed: list[dict], answer: dict, *, text: str = "", size_hint: st
             "key": k, "prompt": glue([", ".join(tags), prose]), "negative": neg,
             "center_x": at.get("center_x"), "center_y": at.get("center_y"),
         })
+    negative = novelai.merge_negative(negative_own, ", ".join([base] + [c["prompt"] for c in character_prompts]))
     size = answer.get("size") or size_hint or "portrait"
     if size not in ("portrait", "landscape", "square"):
         size = "portrait"
