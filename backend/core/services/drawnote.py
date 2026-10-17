@@ -35,7 +35,10 @@ def describe_prompts(nai_prompts: dict) -> str:
         pos = ""
         if c.get("center_x") is not None:
             pos = f" @({c['center_x']},{c['center_y']})"
-        lines.append(f"character[{i}]{pos}: {c.get('prompt', '')}")
+        who = c.get("key") or i
+        lines.append(f"character[{who}]{pos}: {c.get('prompt', '')}")
+        if c.get("negative"):
+            lines.append(f"character[{who}] negative: {c['negative']}")
     own_negative = novelai.without_default_negative(nai_prompts.get("negative_prompt") or "")
     if own_negative:
         lines.append(f"negative_prompt: {own_negative}")
@@ -50,6 +53,7 @@ def lines(
     *,
     with_tags: bool = True,
     with_images: bool = False,
+    exposed: list[str] | None = None,
 ) -> list[str]:
     """
     The whole note about one drawing, in order: who is speaking and which
@@ -66,6 +70,10 @@ def lines(
         if draw_id
         else wording.SYSTEM_NOTE_PLAIN
     ]
+    if exposed:
+        # which entries the picture was drawn from, by key: what a later
+        # picture inherits when it continues this one
+        out.append(wording.APP_NOTE_EXPOSED.format(keys="、".join(exposed)))
     if with_tags and nai_prompts and nai_prompts.get("base_prompt"):
         out.append(wording.APP_NOTE_PROMPTS + "\n" + describe_prompts(nai_prompts))
     if with_images:

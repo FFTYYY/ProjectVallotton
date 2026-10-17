@@ -222,6 +222,8 @@ tar czf media-$(date +%F).tar.gz -C /srv/vallotton media</code></pre>
 <tr class="group"><td colspan="3">画图相关</td></tr>
 <tr><td class="req"><code>NOVELAI_API_KEY</code></td><td>—</td><td>NovelAI的密钥，<code>pst-</code>开头。</td></tr>
 <tr><td><code>NAI_MODEL</code></td><td><code>nai-diffusion-5-full</code></td><td>中、高画质下用的NovelAI模型型号（低画质则固定用上一代的V4.5）。</td></tr>
+<tr><td><code>NAI_PROMPT_TOKEN_LIMIT</code></td><td><code>1471</code></td><td>NovelAI一次能读的提示词长度（token数）。超过它的提示词，画图之前会多一次模型调用把它压到这个长度以内。</td></tr>
+<tr><td><code>NAI_PROMPT_TOKEN_RULE</code></td><td><code>total</code></td><td>上一项怎么算：<code>total</code>是整张图的提示词和各个人物的提示词合在一起算，<code>each</code>是各自分开算。</td></tr>
 <tr class="group"><td colspan="3">反思和连续生成</td></tr>
 <tr><td><code>MAX_REFLECTION_ROUNDS</code></td><td><code>10</code></td><td>「反思轮数」最多能调到多少。</td></tr>
 <tr><td><code>MAX_CONTINUOUS_ROUNDS</code></td><td><code>20</code></td><td>「连续生成」最多能调到多少。</td></tr>

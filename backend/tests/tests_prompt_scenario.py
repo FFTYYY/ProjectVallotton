@@ -9,9 +9,9 @@ paragraphs the files carried then. Put those paragraphs in and the prompts
 must still be byte-for-byte the snapshots: that is what pins the move as a
 pure refactor. What .env.example ships as the default text is a separate
 matter (there is none: the operator adds the variable on purpose) and is
-only checked for landing in the right place when there is one. Edit lead.txt, drawing.txt or tag_lines.txt on purpose and the snapshot
-test will fail: regenerate the fixtures with
-`python tests/update_prompt_snapshots.py`.
+only checked for landing in the right place when there is one. Edit lead.txt,
+drawing.txt or entries.txt on purpose and the snapshot test will fail:
+regenerate the fixtures with `python tests/update_prompt_snapshots.py`.
 """
 
 from __future__ import annotations
@@ -64,8 +64,6 @@ class UsageScenarioTests(SimpleTestCase):
         with override_settings(LEAD_USAGE_SCENARIO=ORIGINAL_LEAD, DRAW_USAGE_SCENARIO=ORIGINAL_DRAW), i18n.use("zh"):
             self.assertEqual(prompts.lead(), (FIXTURES / "prompt_lead.txt").read_text(encoding="utf-8"))
             self.assertEqual(prompts.drawing(), (FIXTURES / "prompt_drawing.txt").read_text(encoding="utf-8"))
-            self.assertEqual(prompts.drawing() + "\n\n" + prompts.drawing_edit(),
-                             (FIXTURES / "prompt_drawing_edit.txt").read_text(encoding="utf-8"))
 
     def test_the_section_sits_where_it_did_with_a_heading(self):
         """With the original texts, and with .env.example's if it ships any."""
@@ -109,10 +107,10 @@ class UsageScenarioTests(SimpleTestCase):
         {{tag}} emphasis in the files must come through untouched."""
         with override_settings(LEAD_USAGE_SCENARIO="x", DRAW_USAGE_SCENARIO="y"):
             lead, drawing = prompts.lead(), prompts.drawing()
-        self.assertIn("`{{detailed background}}, {{scenery}}", lead)
-        self.assertIn('"draw": {\n    "change": "...",', lead)
+        self.assertIn('"draw": {\n    "description": "...",', lead)
+        self.assertIn('"expose": ["画风", "苏棠/通勤装", "@天台", "-旧条目"]', lead)
         self.assertIn("`{{tag}}`是乘`1.1025`", drawing)
-        self.assertIn('"count": {"tags": "...", "prose": "..."}', drawing)
+        self.assertIn('"subjects": [{"key": "苏棠", "center_x": null, "center_y": null}]', drawing)
 
     def test_neither_template_sets_the_variables(self):
         """The default is no section at all: an operator who wants one adds

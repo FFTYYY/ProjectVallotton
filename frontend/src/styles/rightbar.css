@@ -338,7 +338,18 @@
   color: var(--own-deep);
   background: var(--own-soft);
 }
-/* the text was edited and the lines are still being rewritten from it */
+/* where a conversation-layer entry came from: the lead's message, or a pen
+   for one the person made (a project entry's `@` is in its name) */
+.sel-origin {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--own-deep);
+}
+/* the note was edited and the tags are still being rewritten from it */
 .sel-stale { flex-shrink: 0; display: inline-flex; }
 .sel-row .sel-stale svg { color: var(--accent); animation: spin 2.4s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .sel-row .sel-stale svg { animation: none; } }
@@ -353,6 +364,7 @@
 .sel-own-edit { display: grid; gap: 6px; padding: 4px 8px 6px; }
 .sel-own-edit > .sel-own-actions { justify-content: flex-end; padding: 0; }
 .sel-own-edit textarea { resize: vertical; }
+.sel-own-edit .sel-own-tags { font-family: "JetBrains Mono", Consolas, monospace; font-size: 11.5px; }
 .sel-sub {
   flex: 1;
   min-width: 0;

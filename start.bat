@@ -9,7 +9,7 @@ rem variable is changed; delete .runtime\ and it is as if nothing happened.
 setlocal
 cd /d "%~dp0"
 set "PY=.runtime\venv\Scripts\python.exe"
-set "NEED=import django, httpx, PIL, whitenoise, rich"
+set "NEED=import django, httpx, PIL, whitenoise, sentencepiece, rich"
 
 rem ---- an environment from an earlier run: use it only if it is whole. One
 rem whose dependencies never finished installing is set up again, not run.

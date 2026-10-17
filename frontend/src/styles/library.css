@@ -160,44 +160,41 @@
 .lib-variant-head { display: flex; align-items: center; gap: 6px; }
 .lib-variant-head > :first-child { flex: 1; min-width: 0; }
 
-/* The text and its lines share one box. The lines are what the text becomes
-   for the drawing model; set apart they read as a second, unrelated list, and
-   with many entries open the eye lost which text each list belonged to. */
+/* The note and what the drawing model reads of it share one box. Set apart
+   they read as a second, unrelated list, and with many entries open the eye
+   lost which note each list belonged to. */
 .lib-block { background: var(--surface-soft); border-radius: var(--r-2); overflow: hidden; }
 .lib-block > .lib-readonly { background: transparent; padding: 9px 12px; }
 .lib-block .lib-textarea { border-radius: var(--r-2) var(--r-2) 0 0; }
-.lib-block > .lib-lines { margin: 0; padding: 8px 12px 10px; border-top: 1px solid var(--rule-strong); }
+.lib-block > .lib-fields { margin: 0; padding: 8px 12px 10px; border-top: 1px solid var(--rule-strong); }
 
-/* an entry's tag lines in two columns — what it is, the words themselves —
-   so the words line up under each other (the id is the app's handle, not shown) */
-.lib-lines {
+/* the tags and the prose in two columns — which field, the words themselves —
+   so the words line up under each other */
+.lib-fields {
   display: grid;
-  grid-template-columns: minmax(3em, max-content) minmax(0, 1fr);
+  grid-template-columns: max-content minmax(0, 1fr);
   column-gap: 12px;
   row-gap: 4px;
-  margin-top: 8px;
   font-size: 12px;
 }
-.lib-lines > div { display: contents; }
-.lib-line-part {
-  max-width: 9em;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.lib-fields > div { display: contents; }
+.lib-field-label {
   white-space: nowrap;
   font-size: 11.5px;
   line-height: 1.6;
   letter-spacing: 0.04em;
   color: var(--ink-3);
 }
-.lib-lines code {
+.lib-fields code {
   font-family: "JetBrains Mono", Consolas, monospace;
   font-size: 11.5px;
   line-height: 1.6;
   color: var(--ink-2);
   word-break: break-word;
 }
+.lib-note { grid-column: 1 / -1; font-size: 11.5px; color: var(--ink-3); }
 
-/* the text was edited and the lines are still being rewritten from it: a
+/* the note was edited and the tags are still being rewritten from it: a
    slowly turning mark, which stops turning for anyone who asked for less motion */
 .lib-stale {
   flex-shrink: 0;
@@ -209,50 +206,14 @@
 .lib-stale svg { animation: spin 2.4s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .lib-stale svg { animation: none; } }
 
-/* the lines, editable: one card per line — what it is | the tags | remove —
-   so a name and its words read as one thing among many */
-.lib-lines-edit { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-.lib-lines-edit > .lib-lines-head { display: flex; align-items: center; gap: 8px; }
-.lib-lines-edit > .lib-lines-head .info-label { margin: 0; }
-.lib-lines-edit > .lib-lines-head .icon-btn { margin: -6px 0; }
-.lib-lines-edit > .lib-line-row {
-  display: grid;
-  grid-template-columns: 9em minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: start;
-  padding: 6px 8px;
-  border-radius: var(--r-2);
-  background: var(--field-soft);
-}
-/* The card is the only ground: the name and the words sit straight on it,
-   parted by one vertical rule that runs the card's height. Focus is the
-   accent line under whichever of the two is being typed in. */
-.lib-lines-edit > .lib-line-row .info-input,
-.lib-lines-edit > .lib-line-row .lib-line-tags {
-  padding: 6px 8px;
-  border-radius: 0;
-  background-color: transparent;
-  background-image: linear-gradient(var(--accent), var(--accent));
-  background-repeat: no-repeat;
-  background-position: center bottom;
-  background-size: 0 2px;
-  transition: background-size var(--base) var(--ease);
-}
-.lib-lines-edit > .lib-line-row .info-input:hover,
-.lib-lines-edit > .lib-line-row .lib-line-tags:hover {
-  background-image: linear-gradient(var(--accent), var(--accent));
-  background-color: transparent;
-}
-.lib-lines-edit > .lib-line-row .info-input:focus,
-.lib-lines-edit > .lib-line-row .lib-line-tags:focus { background-size: 100% 2px; }
-.lib-lines-edit > .lib-line-row .info-input {
-  align-self: stretch;
-  font-size: 12.5px;
-  border-right: 1px solid var(--rule-strong);
-}
-/* the words grow with what is typed, scrolling only past a dozen lines, and
+/* the fields, editable: one labelled box each, under the note */
+.lib-fields-edit { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.lib-fields-edit .lib-field { gap: 2px; }
+.lib-fields-edit .info-label { margin: 0; }
+.lib-block .lib-fields-edit .lib-textarea { border-radius: var(--r-1); }
+/* the tags grow with what is typed, scrolling only past a dozen lines, and
    then behind a thin bar */
-.lib-lines-edit > .lib-line-row .lib-line-tags {
+.lib-tags {
   font-family: "JetBrains Mono", Consolas, monospace;
   font-size: 11.5px;
   line-height: 1.6;
@@ -263,13 +224,10 @@
   scrollbar-width: thin;
   scrollbar-color: var(--rule-strong) transparent;
 }
-.lib-lines-edit > .lib-line-row .lib-line-tags::-webkit-scrollbar { width: 6px; }
-.lib-lines-edit > .lib-line-row .lib-line-tags::-webkit-scrollbar-track { background: transparent; }
-.lib-lines-edit > .lib-line-row .lib-line-tags::-webkit-scrollbar-thumb { background: var(--rule-strong); border-radius: 3px; }
-.lib-lines-edit > .lib-line-row .phrase-action { margin-top: 2px; }
-@media (max-width: 640px) {
-  .lib-lines-edit > .lib-line-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .lib-lines-edit > .lib-line-row .lib-line-tags { grid-column: 1 / span 2; }
-  /* stacked, the rule between name and words runs across instead */
-  .lib-lines-edit > .lib-line-row .info-input { border-right: none; border-bottom: 1px solid var(--rule-strong); }
-}
+.lib-tags::-webkit-scrollbar { width: 6px; }
+.lib-tags::-webkit-scrollbar-track { background: transparent; }
+.lib-tags::-webkit-scrollbar-thumb { background: var(--rule-strong); border-radius: 3px; }
+
+/* a setting's title and its category share a line */
+.lib-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(8em, 12em); gap: 10px; }
+@media (max-width: 640px) { .lib-row { grid-template-columns: minmax(0, 1fr); } }

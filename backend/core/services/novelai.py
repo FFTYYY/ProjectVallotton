@@ -12,8 +12,10 @@ import io
 import logging
 import os
 import secrets
+import threading
 import time
 import zipfile
+from pathlib import Path
 
 import httpx
 from django.conf import settings
@@ -185,6 +187,80 @@ def tag_key(piece: str) -> str:
     return piece
 
 
+#: The tokenizer NovelAI's V4+ text encoder (T5) cuts a prompt with: Google's
+#: T5 SentencePiece model, 32k pieces, Apache-2.0, bundled so that counting
+#: needs no network. NovelAI does not refuse an over-long prompt -- it paints
+#: with as much as it reads -- so this is the only way to know before sending.
+TOKENIZER_FILE = Path(__file__).resolve().parent.parent / "data" / "t5_spiece.model"
+_tokenizer = None
+_tokenizer_lock = threading.Lock()
+
+
+def _sentencepiece():
+    global _tokenizer
+    if _tokenizer is None:
+        with _tokenizer_lock:
+            if _tokenizer is None:
+                import sentencepiece as spm  # noqa: PLC0415 -- loaded on first use, it is slow to import
+                _tokenizer = spm.SentencePieceProcessor(model_file=str(TOKENIZER_FILE))
+    return _tokenizer
+
+
+def count_tokens(text: str) -> int:
+    """How many tokens NovelAI's encoder reads `text` as."""
+    return len(_sentencepiece().encode(text or ""))
+
+
+def prompt_tokens(nai_prompts: dict) -> dict:
+    """
+    Every piece of a prompt dict with its token count: the base prompt, each
+    character prompt (by key), the negative, and `positive` -- the base and
+    the characters together, which is what the "total" rule measures.
+    """
+    chars = [{"key": c.get("key") or "", "tokens": count_tokens(c.get("prompt") or "")}
+             for c in (nai_prompts.get("character_prompts") or [])]
+    base = count_tokens(nai_prompts.get("base_prompt") or "")
+    return {
+        "base": base,
+        "characters": chars,
+        "negative": count_tokens(nai_prompts.get("negative_prompt") or ""),
+        "positive": base + sum(c["tokens"] for c in chars),
+    }
+
+
+def over_limit(counts: dict, limit: int | None = None, rule: str | None = None) -> list[tuple[str, int]]:
+    """
+    Which pieces of a counted prompt NovelAI would not read whole, as
+    (name, tokens) pairs; empty when the prompt fits. Under the "total" rule
+    the base and character prompts are measured together and the negative on
+    its own; under "each", every piece on its own.
+    """
+    cap: int = limit if limit is not None else settings.NAI_PROMPT_TOKEN_LIMIT
+    rule = settings.NAI_PROMPT_TOKEN_RULE if rule is None else rule
+    over: list[tuple[str, int]] = []
+    if rule == "each":
+        if counts["base"] > cap:
+            over.append(("base", counts["base"]))
+        over += [(f"character {c['key']}", c["tokens"]) for c in counts["characters"] if c["tokens"] > cap]
+    elif counts["positive"] > cap:
+        over.append(("positive", counts["positive"]))
+    if counts["negative"] > cap:
+        over.append(("negative", counts["negative"]))
+    return over
+
+
+def limit() -> int:
+    """The limit in force, for a note that names it."""
+    return int(settings.NAI_PROMPT_TOKEN_LIMIT)
+
+
+def excess(counts: dict, limit: int | None = None, rule: str | None = None) -> int:
+    """How many tokens over the limit a prompt is, all pieces together: the
+    number the reviewer is told to take off."""
+    cap: int = limit if limit is not None else settings.NAI_PROMPT_TOKEN_LIMIT
+    return sum(n - cap for _, n in over_limit(counts, cap, rule))
+
+
 def quality_words(has_text: bool) -> str:
     """The words NovelAI's own client adds to every prompt: the quality words,
     and `no text` only when the picture is not asked to render any text."""
@@ -287,9 +363,11 @@ def _build_payload(
             "v4_negative_prompt": {
                 "caption": {
                     "base_caption": negative,
+                    # a character's own negative beside its caption: the
+                    # entries say what each one must not be
                     "char_captions": [
-                        {"char_caption": "", "centers": c["centers"]}
-                        for c in char_captions
+                        {"char_caption": str(item.get("negative") or ""), "centers": c["centers"]}
+                        for item, c in zip(character_prompts, char_captions)
                     ],
                 },
                 "legacy_uc": False,

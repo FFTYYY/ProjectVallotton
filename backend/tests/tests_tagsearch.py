@@ -6,17 +6,18 @@ Three separable things, tested separately, because they fail separately:
   * the tag list and the search over it (core/services/danbooru.py) — does a
     query find what it should, in the order it should, and does it say so when
     it finds nothing;
-  * the loop that lets a model call a tool at all (providers/base.py) — does it
-    run what was asked, feed the answer back, stop when it is out of rounds or
-    out of time, and survive a tool that throws;
-  * the wiring (llm.py, the providers, the pipeline, the inspect endpoint) —
-    does the drawing call get the tool, does nothing else, and does what the
-    model looked up end up somewhere a person can read it.
+  * the loop that lets a model ask at all (llm._ask) — does it run what was
+    asked, feed the answer back, stop when it is out of rounds, and does the
+    stand-in provider drive it too;
+  * the wiring (llm.py, the pipeline, the inspect endpoint) — does what the
+    model looked up end up somewhere a person can read it, and nowhere a
+    redraw would replay it.
 """
 
 from __future__ import annotations
 
 import gzip
+import io
 import json
 import tempfile
 from pathlib import Path
@@ -24,11 +25,11 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
+from PIL import Image
 
 from core.models import Conversation, Message
 from core.prompts import wording
-from core.services import danbooru, llm, providers
-from core.services.providers import base
+from core.services import danbooru, library, llm, pipeline
 
 #: name, category, post count, aliases — the shape of one line of the real file.
 FIXTURE = [
@@ -63,6 +64,12 @@ def write_index(rows=FIXTURE) -> Path:
         for name, category, count, aliases in rows:
             fh.write(f"{name}\t{category}\t{count}\t{aliases}\n")
     return path
+
+
+def _png() -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 96), (180, 190, 210)).save(buf, "PNG")
+    return buf.getvalue()
 
 
 class SmallIndexTestCase(TestCase):
@@ -199,6 +206,7 @@ class WhatTheModelReadsBackTests(SmallIndexTestCase):
     def test_one_word_sent_unwrapped_is_still_answered(self):
         self.assertIn("cat\t300000", danbooru.answer({"queries": "cat"}))
 
+
 class CheckingAFinishedPromptTests(SmallIndexTestCase):
     """
     Every tag that actually went out, looked up. Reported, never enforced: the
@@ -222,8 +230,6 @@ class CheckingAFinishedPromptTests(SmallIndexTestCase):
         self.assertEqual(danbooru.unknown(["nope", "nope"]), ["nope"])
 
     def test_a_whole_prompt_is_walked_base_characters_and_negative(self):
-        from core.services import llm
-
         found = llm.unknown_tags({
             "base_prompt": "cat, invented one, very aesthetic",
             "character_prompts": [{"prompt": "miku, invented two"}],
@@ -233,17 +239,27 @@ class CheckingAFinishedPromptTests(SmallIndexTestCase):
 
     def test_novelais_own_words_are_not_reported(self):
         """Otherwise every single picture would come back with a complaint."""
-        from core.services import llm
-
         self.assertEqual(
             llm.unknown_tags({"base_prompt": "cat, very aesthetic, masterpiece",
                               "negative_prompt": "worst quality, bad quality"}),
             [],
         )
 
-    def test_a_row_with_no_prompts_says_nothing(self):
-        from core.services import llm
+    def test_a_sentence_the_assembly_records_as_prose_is_not_a_tag(self):
+        """
+        Prose rides in the prompt after the tags, and a sentence with a comma
+        in it reads as two short pieces. The turn's assembly record says what
+        was prose, so those pieces are not reported as tags the site lacks.
+        """
+        prompts = {"base_prompt": "cat, Her ribbon is red, tied at the back.",
+                   "character_prompts": [], "negative_prompt": ""}
+        without = llm.unknown_tags(prompts)
+        self.assertTrue(any("ribbon" in t for t in without), without)
+        record = [{"key": "林晚/日常装", "kind": "variant", "used": True, "positive": [], "negative": [],
+                   "prose": "Her ribbon is red, tied at the back."}]
+        self.assertEqual(llm.unknown_tags(prompts, record), [])
 
+    def test_a_row_with_no_prompts_says_nothing(self):
         self.assertEqual(llm.unknown_tags(None), [])
         self.assertEqual(llm.unknown_tags({}), [])
 
@@ -285,6 +301,7 @@ class NoTagListTests(TestCase):
         self.assertEqual(len(danbooru.index()), 0)
         self.assertEqual(danbooru.search("cat"), [])
 
+
 class TheBundledIndexTests(TestCase):
     """
     The file that actually ships. Everything above would pass with no file at
@@ -310,6 +327,9 @@ class TheBundledIndexTests(TestCase):
 # --------------------------------------------------------------------------
 
 
+LEAD_ANSWER = {"reply": "你好", "settings": [], "characters": [], "edits": None, "draw": None}
+
+
 @override_settings(LLM_PROVIDER="deepseek", DEEPSEEK_API_KEY="k", OPENROUTER_API_KEY="")
 class BothModelsLookTagsUpInTheAnswerTests(TestCase):
     """
@@ -333,9 +353,9 @@ class BothModelsLookTagsUpInTheAnswerTests(TestCase):
 
     def test_the_drawing_call_may_ask_and_is_answered(self):
         out, sent = self._calls(
-            lambda: llm.draw_turn({"composition": "一只猫", "size": "portrait"}),
+            lambda: llm.draw("一只猫", []),
             {"lookup": ["cat"]},
-            {"scene": "cat"},
+            {"positive": "cat"},
         )
         self.assertEqual(len(sent), 2)
         # the second request carries the question and the app's answer
@@ -346,22 +366,25 @@ class BothModelsLookTagsUpInTheAnswerTests(TestCase):
         # and the lookup comes back with the turn, which is how it reaches the row
         self.assertEqual(out["lookups"][0]["queries"], ["cat"])
         self.assertIn("cat", out["lookups"][0]["result"])
+        # the answer given after the lookup is the one assembled
+        self.assertTrue(out["nai_prompts"]["base_prompt"].startswith("cat"))
 
     def test_the_conversation_call_may_too(self):
         out, sent = self._calls(
             lambda: llm.lead_turn([{"role": "user", "content": "你好"}]),
             {"lookup": ["hair"]},
-            {"reply": "你好", "draw": None, "edits": None},
+            LEAD_ANSWER,
         )
         self.assertEqual(len(sent), 2)
         self.assertEqual(out["lookups"][0]["queries"], ["hair"])
+        self.assertEqual(out["reply"], "你好")
 
     def test_the_last_allowed_round_offers_no_lookup(self):
         with override_settings(DRAW_TOOL_ROUNDS=1):
             _, sent = self._calls(
-                lambda: llm.draw_turn({"composition": "一只猫", "size": "portrait"}),
+                lambda: llm.draw("一只猫", []),
                 {"lookup": ["cat"]},
-                {"scene": "cat"},
+                {"positive": "cat"},
             )
         self.assertIn("lookup", sent[0][1]["schema"]["properties"])
         self.assertNotIn("lookup", sent[1][1]["schema"]["properties"])
@@ -371,25 +394,26 @@ class BothModelsLookTagsUpInTheAnswerTests(TestCase):
     @override_settings(DRAW_TOOL_ROUNDS=0)
     def test_the_kill_switch_leaves_one_request_with_no_lookup(self):
         _, sent = self._calls(
-            lambda: llm.draw_turn({"composition": "一只猫", "size": "portrait"}),
-            {"scene": "cat"},
+            lambda: llm.draw("一只猫", []),
+            {"positive": "cat"},
         )
         self.assertEqual(len(sent), 1)
         self.assertNotIn("lookup", sent[0][1]["schema"]["properties"])
 
     def test_an_answer_that_asks_for_nothing_is_the_answer(self):
         out, sent = self._calls(
-            lambda: llm.draw_turn({"composition": "一只猫", "size": "portrait"}),
-            {"lookup": [], "scene": "cat"},
+            lambda: llm.draw("一只猫", []),
+            {"lookup": [], "positive": "cat"},
         )
         self.assertEqual(len(sent), 1)
         self.assertEqual(out["lookups"], [])
         self.assertNotIn("lookup", out)
+        self.assertNotIn("lookup", out["answer"])
 
     def test_a_turn_that_looked_nothing_up_carries_an_empty_list(self):
         out, _ = self._calls(
-            lambda: llm.draw_turn({"composition": "一只猫", "size": "portrait"}),
-            {"scene": "cat"},
+            lambda: llm.draw("一只猫", []),
+            {"positive": "cat"},
         )
         self.assertEqual(out["lookups"], [])
 
@@ -404,43 +428,72 @@ class TheStandInLooksUpTooTests(TestCase):
 
     def test_a_drawing_call_on_the_stub_really_looks_up(self):
         with mock.patch.dict("os.environ", {"FAKE_LATENCY_MS": "0"}):
-            out = llm.draw_turn({"composition": "查标签：一个人物站在窗前", "size": "portrait"})
+            out = llm.draw("查标签：一个人物站在窗前", [])
         self.assertEqual(len(out["lookups"]), 1)
         self.assertIn("1girl", out["lookups"][0]["result"])
         # and the answer still arrives, which is the half a stub can get wrong
-        self.assertTrue(out["base_prompt"])
+        self.assertTrue(out["nai_prompts"]["base_prompt"])
 
     def test_the_stub_answers_at_once_when_not_asked_to_look(self):
         with mock.patch.dict("os.environ", {"FAKE_LATENCY_MS": "0"}):
-            out = llm.draw_turn({"composition": "一个人物站在窗前", "size": "portrait"})
+            out = llm.draw("一个人物站在窗前", [])
         self.assertEqual(out["lookups"], [])
 
 
 class WhatGetsStoredTests(TestCase):
     """
-    Where the lookups end up: beside the drawing model's working, never inside
-    the prompts, because 重绘 replays those verbatim.
+    Where the lookups end up: beside the drawing model's working on the row,
+    never inside the prompts, because 重绘 replays those verbatim.
     """
 
-    def test_the_prompts_are_the_prompt_fields_and_nothing_else(self):
-        drawn = {
-            "n_images": 1, "size": "portrait", "base_prompt": "cat",
-            "character_prompts": [], "negative_prompt": "",
-            "usage": {"prompt_tokens": 1}, "reasoning": "想了想",
-            "lookups": [{"queries": ["cat"], "result": "x"}],
+    PROMPT_FIELDS = {"size", "base_prompt", "character_prompts", "negative_prompt"}
+    #: what the app settles into the prompt dict before painting it
+    SETTLED = {"n_images", "tier", "draw_id"}
+
+    def _turn(self, drawn: dict) -> Message:
+        conv = Conversation.objects.create(title="c")
+        Message.objects.create(conversation=conv, seq=1, role="user", content="画一只猫")
+        msg = Message.objects.create(conversation=conv, seq=2, role="assistant", status="pending")
+        spec = {"description": "一只猫", "expose": [], "inherits": "", "text": "", "size": ""}
+        with mock.patch.object(pipeline.llm, "draw", return_value=drawn), mock.patch.object(
+            pipeline.novelai, "generate_one", return_value=(_png(), 1)
+        ):
+            pipeline._prompts_and_paint(msg, spec, pipeline.DrawContext(exposure=library.Exposure()))
+        msg.refresh_from_db()
+        return msg
+
+    @staticmethod
+    def _drawn(**extra) -> dict:
+        return {
+            "nai_prompts": {"size": "portrait", "base_prompt": "cat", "character_prompts": [],
+                            "negative_prompt": ""},
+            "assembly": [], "answer": {"positive": ["cat"]}, "asked": "【主要描述】\n一只猫",
+            "reasoning": "想了想", "lookups": [{"queries": ["cat"], "result": "x"}],
+            "usage": {"prompt_tokens": 1},
+            **extra,
         }
-        self.assertEqual(
-            set(llm.prompts_from(drawn)),
-            {"n_images", "size", "base_prompt", "character_prompts", "negative_prompt"},
-        )
+
+    def test_the_prompts_are_the_prompt_fields_and_nothing_else(self):
+        msg = self._turn(self._drawn())
+        self.assertEqual(set(msg.nai_prompts or {}), self.PROMPT_FIELDS | self.SETTLED)
+        raw = msg.model_raw or {}
+        self.assertEqual(raw["draw_lookups"], [{"queries": ["cat"], "result": "x"}])
+        self.assertEqual(raw["draw_reasoning"], "想了想")
+        # the record of how the prompt was made carries the answer, not the lookups
+        self.assertEqual(set(msg.prompt or {}),
+                         {"description", "text", "size", "inherits", "exposed_keys", "exposed", "answer", "assembly"})
+        self.assertNotIn("lookups", json.dumps(msg.prompt))
 
     def test_a_field_added_to_the_result_does_not_leak_into_the_prompts(self):
         """
-        The list says what belongs rather than what does not, so the next field
-        anyone adds to a draw result is excluded by default.
+        The row takes the prompt dict by name rather than everything the
+        drawing call returned, so the next field anyone adds to a draw result
+        is kept off the prompts by default.
         """
-        self.assertEqual(llm.prompts_from({"base_prompt": "cat", "whatever": 1}),
-                         {"base_prompt": "cat"})
+        msg = self._turn(self._drawn(whatever=1))
+        self.assertNotIn("whatever", msg.nai_prompts or {})
+        self.assertNotIn("whatever", json.dumps(msg.model_raw))
+        self.assertNotIn("whatever", json.dumps(msg.prompt))
 
 
 @override_settings(APP_USERNAME="yyy", APP_PASSWORD="pw")

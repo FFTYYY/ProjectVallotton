@@ -1,10 +1,10 @@
 /**
- * Whether an entry's tag lines are waiting to be rewritten from its text.
+ * Whether an entry's tags are waiting to be rewritten from its note.
  *
- * A person edits text, never tags; the app rewrites the lines from the text
- * a little later, off the request (backend services/library_lines.py). Until
- * then the entry carries a small turning mark, and a page that shows one
- * keeps asking so the mark goes away on its own.
+ * A note edited by hand goes to the patrol, which fills the tags and prose
+ * from it a little later, off the request (backend services/library_lines.py).
+ * Until then the entry carries a small turning mark, and a page that shows
+ * one keeps asking so the mark goes away on its own.
  */
 
 import type { Character, Setting } from "../api/types";

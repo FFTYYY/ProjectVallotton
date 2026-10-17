@@ -232,8 +232,9 @@ export function ChatView() {
 
   // when generation finishes, refresh the sidebar (title/preview may change),
   // pick up any library edits the lead model proposed this turn, and re-read
-  // the selection: the lead's own notes land in it at once, and a project
-  // character it drew by name is switched on by the server
+  // the selection: the turn's own entries are written into the library when
+  // the turn is over (after reflection), and a project character it drew by
+  // name is switched on by the server
   const prevPending = useRef(hasPending);
   useEffect(() => {
     if (prevPending.current && !hasPending) {
@@ -468,10 +469,12 @@ export function ChatView() {
                 onOpenImage={onOpenImage}
               />
               {/* a library proposal belongs to the turn that raised it, and is
-                  read in sequence with it like everything else here */}
-              {(proposalsByMessage[m.id] ?? []).map((p) => (
-                <ProposalTurn key={p.id} convId={convId} proposal={p} />
-              ))}
+                  read in sequence with it like everything else here — once the
+                  turn is done, since reflection may rewrite it round by round */}
+              {m.status === "done" &&
+                (proposalsByMessage[m.id] ?? []).map((p) => (
+                  <ProposalTurn key={p.id} convId={convId} proposal={p} />
+                ))}
             </Fragment>
           ))}
         </div>

@@ -8,11 +8,12 @@
  * on its own.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import type { Character, Setting, Variant, TagLine } from "../api/types";
+import type { Character, EntryFields as Fields, EntryPatch, Setting, Variant } from "../api/types";
 import { confirmArchive } from "../lib/archive";
+import { joinTags, sameTags, splitTags } from "../lib/entries";
 import { STALE_POLL_MS, anyStale, staleHint } from "../lib/linesStale";
 import { confirm } from "../store/confirm";
 import { useProjects } from "../store/projects";
@@ -53,6 +54,7 @@ function Field({
   rows,
   maxLength,
   autoFocus,
+  className,
   onCommit,
 }: {
   label?: string;
@@ -61,6 +63,7 @@ function Field({
   rows?: number;
   maxLength?: number;
   autoFocus?: boolean;
+  className?: string;
   onCommit: (next: string) => void;
 }) {
   const [draft, setDraft] = useState(value);
@@ -72,7 +75,7 @@ function Field({
   }
 
   return (
-    <label className="lib-field">
+    <label className={`lib-field ${className ?? ""}`}>
       {label && <span className="info-label">{label}</span>}
       {rows ? (
         <textarea
@@ -102,7 +105,73 @@ function Field({
   );
 }
 
-/** the lines are behind the text; they catch up on their own */
+/**
+ * A tag list typed as one line. Shown joined with commas, sent as a list; a
+ * line that splits to the same tags is not an edit.
+ */
+function TagField({
+  label,
+  tags,
+  onCommit,
+}: {
+  label: string;
+  tags: string[];
+  onCommit: (next: string[]) => void;
+}) {
+  const stored = joinTags(tags);
+  const [draft, setDraft] = useState(stored);
+  useEffect(() => setDraft(stored), [stored]);
+  const box = useRef<HTMLTextAreaElement | null>(null);
+  // as tall as the text whenever the text changes, typed or written by the
+  // patrol, and again once the web fonts are in (a line measured in the
+  // fallback font is shorter) or when the field changes width
+  useLayoutEffect(() => fitHeight(box.current), [draft]);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    let alive = true;
+    void document.fonts?.ready.then(() => {
+      if (alive) fitHeight(el);
+    });
+    let width = el.clientWidth;
+    const watch =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            if (el.clientWidth === width) return;
+            width = el.clientWidth;
+            fitHeight(el);
+          });
+    watch?.observe(el);
+    return () => {
+      alive = false;
+      watch?.disconnect();
+    };
+  }, []);
+
+  function commit() {
+    const next = splitTags(draft);
+    if (sameTags(next, tags)) setDraft(stored);
+    else onCommit(next);
+  }
+
+  return (
+    <label className="lib-field">
+      <span className="info-label">{label}</span>
+      <textarea
+        className="lib-textarea lib-tags"
+        value={draft}
+        rows={1}
+        placeholder={t.tagsPlaceholder}
+        ref={box}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+      />
+    </label>
+  );
+}
+
+/** the tags are behind the note; they catch up on their own */
 function StaleMark() {
   return (
     <span className="lib-stale" role="img" aria-label={staleHint()} title={staleHint()}>
@@ -112,120 +181,61 @@ function StaleMark() {
 }
 
 /**
- * An entry's tag lines, read-only: an inherited entry is edited where it
- * lives. The lines are what the app splices into prompts byte for byte.
+ * What the drawing model reads of an entry, read-only: an inherited entry is
+ * edited where it lives.
  */
-function TagLines({ lines }: { lines?: TagLine[] }) {
-  if (!lines?.length) return null;
+function EntryFields({ entry }: { entry: Fields }) {
+  const rows = [
+    [t.positiveTags, joinTags(entry.positive)],
+    [t.negativeTags, joinTags(entry.negative)],
+    [t.prose, entry.prose],
+  ].filter(([, value]) => value);
   return (
-    <div className="lib-lines">
-      {lines.map((ln) => (
-        <div key={ln.id || ln.part}>
-          <span className="lib-line-part">{ln.part}</span>
-          <code>{ln.tags}</code>
+    <div className="lib-fields">
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <span className="lib-field-label">{label}</span>
+          <code>{value}</code>
         </div>
       ))}
+      {rows.length === 0 && <span className="lib-note">{t.empty}</span>}
     </div>
   );
 }
 
 /**
- * An entry's tag lines, editable by hand.
+ * What the drawing model reads of an entry, editable by hand.
  *
- * The lines are normally written by the model — the lead when it records an
- * entry, the line writer after the text is edited — but what they say is the
- * user's to check and correct: a row's id is the app's and stays (pictures
- * already drawn point at it); its part and tags are free text. A row with no
- * tags is not saved. Saving by hand counts the lines as fresh, so the line
- * writer leaves them alone.
+ * The lead writes these when it records an entry, and the patrol rewrites
+ * them after the note is edited — but what they say is the person's to check
+ * and correct. Saving by hand counts them as fresh, so the patrol leaves them
+ * alone.
  */
-function TagLinesEditor({
-  lines,
+function EntryEditor({
+  entry,
   onCommit,
 }: {
-  lines?: TagLine[];
-  onCommit: (next: TagLine[]) => void;
+  entry: Fields;
+  onCommit: (patch: EntryPatch) => void;
 }) {
-  const [draft, setDraft] = useState<TagLine[]>(lines ?? []);
-  const stored = JSON.stringify(lines ?? []);
-  // the store lands a new copy after every save (ids assigned, rows dropped):
-  // follow it, but only when it actually changed, or typing would be undone
-  useEffect(() => setDraft(JSON.parse(stored) as TagLine[]), [stored]);
-
-  function clean(rows: TagLine[]): TagLine[] {
-    return rows
-      .map((ln) => ({ id: ln.id, part: ln.part.trim(), tags: ln.tags.trim() }))
-      .filter((ln) => ln.tags);
-  }
-
-  function save(rows: TagLine[]) {
-    const next = clean(rows);
-    const was = clean(lines ?? []);
-    const same =
-      next.length === was.length &&
-      next.every((ln, i) => ln.part === was[i].part && ln.tags === was[i].tags);
-    if (!same) onCommit(next);
-  }
-
-  function edit(i: number, patch: Partial<TagLine>) {
-    setDraft((d) => d.map((ln, j) => (j === i ? { ...ln, ...patch } : ln)));
-  }
-
-  function remove(i: number) {
-    const next = draft.filter((_, j) => j !== i);
-    setDraft(next);
-    save(next);
-  }
-
   return (
-    <div className="lib-lines lib-lines-edit">
-      <div className="lib-lines-head">
-        <span className="info-label">{t.tagLines}</span>
-        <button
-          className="icon-btn"
-          aria-label={t.addLine}
-          onClick={() => setDraft((d) => [...d, { id: "", part: "", tags: "" }])}
-        >
-          <PlusIcon size={14} />
-        </button>
-      </div>
-      {draft.map((ln, i) => (
-        <div key={ln.id || `new-${i}`} className="lib-line-row">
-          <input
-            className="info-input"
-            value={ln.part}
-            placeholder={t.part}
-            maxLength={40}
-            aria-label={t.part}
-            onChange={(e) => edit(i, { part: e.target.value })}
-            onBlur={() => save(draft)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.nativeEvent.isComposing) e.currentTarget.blur();
-            }}
-          />
-          <textarea
-            className="lib-textarea lib-line-tags"
-            value={ln.tags}
-            rows={1}
-            placeholder="tags"
-            aria-label={t.lineTags}
-            ref={fitHeight}
-            onInput={(e) => fitHeight(e.currentTarget)}
-            onChange={(e) => edit(i, { tags: e.target.value })}
-            onBlur={() => save(draft)}
-          />
-          <button
-            className="phrase-action danger"
-            aria-label={t.deleteLine}
-            onClick={() => remove(i)}
-          >
-            <TrashIcon size={13} />
-          </button>
-        </div>
-      ))}
-      {draft.length === 0 && (
-        <div className="lib-note">{t.empty}</div>
-      )}
+    <div className="lib-fields lib-fields-edit">
+      <TagField
+        label={t.positiveTags}
+        tags={entry.positive}
+        onCommit={(positive) => onCommit({ positive })}
+      />
+      <TagField
+        label={t.negativeTags}
+        tags={entry.negative}
+        onCommit={(negative) => onCommit({ negative })}
+      />
+      <Field
+        label={t.prose}
+        value={entry.prose}
+        rows={2}
+        onCommit={(prose) => onCommit({ prose })}
+      />
     </div>
   );
 }
@@ -263,6 +273,8 @@ function SettingCard({
     }
   }
 
+  const update = (patch: EntryPatch) => void updateSetting(folderId, setting.id, patch);
+
   return (
     <div className={`lib-card ${readOnly ? "inherited" : ""}`}>
       <div className="lib-card-head">
@@ -271,6 +283,7 @@ function SettingCard({
           <SettingEntryIcon size={14} />
           <span className="lib-card-title">{setting.title || t.untitledParen}</span>
           {setting.lines_stale && <StaleMark />}
+          {setting.category && <span className="lib-card-count">{setting.category}</span>}
         </button>
         {readOnly ? (
           <span className="lib-inherit-tag">{t.inherited}</span>
@@ -299,32 +312,36 @@ function SettingCard({
           <div className="lib-card-body">
             <div className="lib-block">
               <div className="lib-readonly">{setting.content || t.emptyParen}</div>
-              <TagLines lines={setting.tags} />
+              <EntryFields entry={setting} />
             </div>
           </div>
         ) : (
           <div className="lib-card-body">
-            <Field
-              label={t.title}
-              value={setting.title}
-              maxLength={120}
-              autoFocus={autoOpen}
-              onCommit={(title) =>
-                title && void updateSetting(folderId, setting.id, { title })
-              }
-            />
+            <div className="lib-row">
+              <Field
+                label={t.title}
+                value={setting.title}
+                maxLength={120}
+                autoFocus={autoOpen}
+                onCommit={(title) => title && update({ title })}
+              />
+              <Field
+                label={t.category}
+                value={setting.category}
+                maxLength={40}
+                className="lib-category"
+                onCommit={(category) => update({ category })}
+              />
+            </div>
             <div className="lib-field">
-              <span className="info-label">{t.content}</span>
+              <span className="info-label">{t.note}</span>
               <div className="lib-block">
                 <Field
                   value={setting.content}
                   rows={4}
-                  onCommit={(content) => void updateSetting(folderId, setting.id, { content })}
+                  onCommit={(content) => update({ content })}
                 />
-                <TagLinesEditor
-                  lines={setting.tags}
-                  onCommit={(tags) => void updateSetting(folderId, setting.id, { tags })}
-                />
+                <EntryEditor entry={setting} onCommit={update} />
               </div>
             </div>
           </div>
@@ -357,6 +374,9 @@ function VariantRow({
     if (ok) await deleteVariant(folderId, character.id, variant.id);
   }
 
+  const update = (patch: EntryPatch) =>
+    void updateVariant(folderId, character.id, variant.id, patch);
+
   return (
     <div className="lib-variant">
       {readOnly ? (
@@ -367,7 +387,7 @@ function VariantRow({
           </div>
           <div className="lib-block">
             <div className="lib-readonly">{variant.content || t.emptyParen}</div>
-            <TagLines lines={variant.tags} />
+            <EntryFields entry={variant} />
           </div>
         </>
       ) : (
@@ -376,9 +396,7 @@ function VariantRow({
             <Field
               value={variant.title}
               maxLength={120}
-              onCommit={(title) =>
-                title && void updateVariant(folderId, character.id, variant.id, { title })
-              }
+              onCommit={(title) => title && update({ title })}
             />
             {variant.lines_stale && <StaleMark />}
             <button
@@ -393,16 +411,9 @@ function VariantRow({
             <Field
               value={variant.content}
               rows={3}
-              onCommit={(content) =>
-                void updateVariant(folderId, character.id, variant.id, { content })
-              }
+              onCommit={(content) => update({ content })}
             />
-            <TagLinesEditor
-              lines={variant.tags}
-              onCommit={(tags) =>
-                void updateVariant(folderId, character.id, variant.id, { tags })
-              }
-            />
+            <EntryEditor entry={variant} onCommit={update} />
           </div>
         </>
       )}
@@ -450,6 +461,8 @@ function CharacterCard({
     );
   }
 
+  const update = (patch: EntryPatch) => void updateCharacter(folderId, character.id, patch);
+
   return (
     <div className={`lib-card ${readOnly ? "inherited" : ""}`}>
       <div className="lib-card-head">
@@ -483,7 +496,7 @@ function CharacterCard({
             <>
               <div className="lib-block">
                 <div className="lib-readonly">{character.description || t.emptyParen}</div>
-                <TagLines lines={character.tags} />
+                <EntryFields entry={character} />
               </div>
             </>
           ) : (
@@ -493,25 +506,18 @@ function CharacterCard({
                 value={character.name}
                 maxLength={120}
                 autoFocus={autoOpen}
-                onCommit={(name) =>
-                  name && void updateCharacter(folderId, character.id, { name })
-                }
+                onCommit={(name) => name && update({ name })}
               />
               <div className="lib-field">
-                <span className="info-label">{t.characterText}</span>
+                <span className="info-label">{t.note}</span>
                 <div className="lib-block">
                   <Field
                     value={character.description}
                     rows={4}
                     placeholder={t.characterTextPlaceholder}
-                    onCommit={(description) =>
-                      void updateCharacter(folderId, character.id, { description })
-                    }
+                    onCommit={(description) => update({ description })}
                   />
-                  <TagLinesEditor
-                    lines={character.tags}
-                    onCommit={(tags) => void updateCharacter(folderId, character.id, { tags })}
-                  />
+                  <EntryEditor entry={character} onCommit={update} />
                 </div>
               </div>
             </>
@@ -559,8 +565,8 @@ export function LibraryView() {
     if (folderId) void loadLibrary(folderId);
   }, [folderId, loadLibrary]);
 
-  // While an entry's lines are being rewritten from its text, ask again now
-  // and then, so the chip goes away on its own rather than on a reload.
+  // While an entry's tags are being rewritten from its note, ask again now
+  // and then, so the mark goes away on its own rather than on a reload.
   const waiting = !!lib && anyStale(lib.settings, lib.characters);
   useEffect(() => {
     if (!waiting || !folderId) return;

@@ -27,18 +27,28 @@ def attachment_thumb_path(instance: "Attachment", filename: str) -> str:
 
 class WithLines:
     """
-    What a setting, a character and a costume share about their tag lines.
+    What a setting, a character and a costume share: they are entries.
 
-    Whether a model still has to look at the lines is a question of time, not
-    of content: the text changed after a model last wrote or vetted the lines.
-    It is never judged by whether there are lines -- an entry may have none on
-    purpose, or have some a person wrote by hand, and the writer has to see
-    those rather than be kept away by them.
+    An entry is a note (what the person said, in their language, never sent
+    to NovelAI), a positive tag list, a negative tag list and a prose line
+    (English, for NovelAI). The note is the person's; the other three a model
+    fills in from it (services/library_lines.py) and the person may edit.
+
+    Whether a model still has to look at the entry is a question of time, not
+    of content: the note changed after a model last filled the tags. It is
+    never judged by whether there are tags -- an entry may have none on
+    purpose, or some a person wrote by hand.
     """
 
     @property
     def lines_text(self) -> str:
+        """the note"""
         return self.description if isinstance(self, Character) else self.content  # type: ignore[attr-defined]
+
+    @property
+    def key(self) -> str:
+        """the entry's name, which is its identity within its layer"""
+        return self.name if isinstance(self, Character) else self.title  # type: ignore[attr-defined]
 
     @property
     def lines_stale(self) -> bool:
@@ -122,11 +132,14 @@ class Setting(WithLines, models.Model):
     )
     title = models.CharField(max_length=120)
     content = models.TextField(blank=True, default="")
-    #: The tag lines: [{"id": "s1", "part": "画风", "tags": "painterly, ..."}].
-    #: Written by the lead model's proposal, spliced into prompts byte for byte
-    #: by the app; the drawing model may pick a line but never reword one. Ids
-    #: are the app's and survive an edit of the entry.
-    tags = models.JSONField(default=list, blank=True)
+    positive = models.JSONField(default=list, blank=True)
+    negative = models.JSONField(default=list, blank=True)
+    prose = models.TextField(blank=True, default="")
+    origin_seq = models.BigIntegerField(null=True, blank=True)
+    #: What this setting is about -- 画风, 镜头, 场景, 光, 人物比例 or
+    #: whatever the lead names; blank means 其他. A label for people and for
+    #: the lead's own ordering; the app attaches no behaviour to it.
+    category = models.CharField(max_length=40, blank=True, default="")
     #: when the text last changed, by anyone
     text_edited_at = models.DateTimeField(null=True, blank=True)
     #: when a model last wrote the lines, or read them and let them stand. A
@@ -189,9 +202,11 @@ class Character(WithLines, models.Model):
     )
     name = models.CharField(max_length=120)
     description = models.TextField(blank=True, default="")
-    #: Lines for what does not change with the outfit: identity, hair, eyes,
-    #: skin, marks. Same shape as Setting.tags, ids prefixed `k`.
-    tags = models.JSONField(default=list, blank=True)
+    #: what does not change with the outfit: identity, hair, eyes, skin, marks
+    positive = models.JSONField(default=list, blank=True)
+    negative = models.JSONField(default=list, blank=True)
+    prose = models.TextField(blank=True, default="")
+    origin_seq = models.BigIntegerField(null=True, blank=True)
     #: when the text last changed, by anyone
     text_edited_at = models.DateTimeField(null=True, blank=True)
     #: when a model last wrote the lines, or read them and let them stand. A
@@ -242,8 +257,11 @@ class CharacterVariant(WithLines, models.Model):
     )
     title = models.CharField(max_length=120)
     content = models.TextField(blank=True, default="")
-    #: Lines for this outfit, one garment or accessory per line, ids `v*`.
-    tags = models.JSONField(default=list, blank=True)
+    #: this outfit: every garment and accessory
+    positive = models.JSONField(default=list, blank=True)
+    negative = models.JSONField(default=list, blank=True)
+    prose = models.TextField(blank=True, default="")
+    origin_seq = models.BigIntegerField(null=True, blank=True)
     #: when the text last changed, by anyone
     text_edited_at = models.DateTimeField(null=True, blank=True)
     #: when a model last wrote the lines, or read them and let them stand. A
@@ -566,8 +584,11 @@ class LibraryProposal(models.Model):
     )
     # the folder the edits would land in (the conversation's folder at the time)
     folder = models.ForeignKey(Folder, null=True, blank=True, on_delete=models.CASCADE)
-    # {"settings": [{title, content}], "characters": [{name, description?,
-    #   variants: [{title, content}]}]}
+    # {"settings": [{key, category?, note, positive, negative, prose}],
+    #  "characters": [{key, note, positive, negative, prose,
+    #   variants: [{key, note, positive, negative, prose}]}]}
+    # keys carry the project prefix "@"; an item without the tag fields leaves
+    # them to the patrol (proposals carried over from before entries, 0031)
     payload = models.JSONField(default=dict)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="pending")
     applied_summary = models.TextField(blank=True, default="")

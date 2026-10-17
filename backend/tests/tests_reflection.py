@@ -17,7 +17,8 @@ from django.core.files.base import ContentFile
 from django.test import Client, TestCase, override_settings
 from PIL import Image
 
-from core.models import Attachment, Conversation, Message
+from core import ui_text
+from core.models import Attachment, Conversation, Folder, LibraryProposal, Message, Setting
 from core.services import gensettings, jobs, llm, pipeline, providers, reflection
 
 TEST_CREDS = {"APP_USERNAME": "yyy", "APP_PASSWORD": "pw"}
@@ -29,8 +30,15 @@ def _png(shade=(180, 190, 210)) -> bytes:
     return buf.getvalue()
 
 
-def _brief(main: str) -> dict:
-    return {"main": main, "size": "portrait"}
+def _draw(description: str, expose=(), inherits: str = "") -> dict:
+    """The lead's `draw`, in the shape the schema has it."""
+    return {"description": description, "expose": list(expose), "inherits": inherits,
+            "text": "", "size": "portrait"}
+
+
+def _verdict(reply: str, draw: dict | None = None, **rest) -> dict:
+    """One reflection answer: the lead's own shape, with a redraw or null."""
+    return {"reply": reply, "settings": [], "characters": [], "edits": None, "draw": draw, **rest}
 
 
 def _prompts(tag: str) -> dict:
@@ -52,21 +60,23 @@ class FakeWorld:
     def __init__(self, verdicts):
         self.verdicts = list(verdicts)
         self.seen: list[list[dict]] = []      # one entry per reflect_turn call
-        self.painted: list[dict] = []          # the briefs it was asked to redraw
+        self.checks: list = []                 # the check each call was handed
+        self.painted: list[dict] = []          # the verdicts it was asked to redraw from
         self.discarded: list = []
         self.phases: list[str] = []
         self.prefix = ""
         self.round = 0
 
-    def reflect(self, messages, on_retry=None):
+    def reflect(self, messages, on_retry=None, check=None):
         self.seen.append(messages)
+        self.checks.append(check)
         return self.verdicts[min(self.round_index(), len(self.verdicts) - 1)]
 
     def round_index(self):
         return len(self.seen) - 1
 
-    def redraw(self, brief):
-        self.painted.append(brief)
+    def redraw(self, verdict):
+        self.painted.append(verdict)
         return _prompts(f"tag-{len(self.painted)}"), [f"img-{len(self.painted)}"]
 
     def hooks(self):
@@ -98,7 +108,7 @@ def run_loop(world, *, rounds=3, images=("img-0",), base=None):
         return reflection.run(
             base_history=list(base or [{"role": "user", "content": "画林"}]),
             first_reply="给你一张。",
-            brief=_brief("林站在城墙上"),
+            brief=_draw("林站在城墙上"),
             nai_prompts=_prompts("tag-0"),
             images=list(images),
             rounds=rounds,
@@ -108,63 +118,90 @@ def run_loop(world, *, rounds=3, images=("img-0",), base=None):
 
 class ReflectionLoopTests(TestCase):
     def test_a_satisfied_first_look_stops_and_changes_nothing(self):
-        world = FakeWorld([{"reply": "就这样，够了。", "draw": None}])
+        world = FakeWorld([_verdict("就这样，够了。")])
         out = run_loop(world)
         self.assertEqual(out.rounds_run, 1)
         self.assertEqual(world.painted, [])
         self.assertEqual(out.images, ["img-0"])
-        self.assertEqual(out.brief, _brief("林站在城墙上"))
+        self.assertEqual(out.brief, _draw("林站在城墙上"))
         self.assertEqual(out.log, [{"round": 1, "reply": "就这样，够了。", "redrew": False}])
 
     def test_it_keeps_redrawing_until_satisfied(self):
         world = FakeWorld([
-            {"reply": "光太软。", "draw": _brief("硬光版")},
-            {"reply": "手画坏了。", "draw": _brief("修手版")},
-            {"reply": "这回对了。", "draw": None},
+            _verdict("光太软。", _draw("硬光版")),
+            _verdict("手画坏了。", _draw("修手版")),
+            _verdict("这回对了。"),
         ])
         out = run_loop(world, rounds=5)
         self.assertEqual(out.rounds_run, 3)
-        self.assertEqual([b["main"] for b in world.painted], ["硬光版", "修手版"])
-        self.assertEqual(out.brief, _brief("修手版"))
+        self.assertEqual([v["draw"]["description"] for v in world.painted], ["硬光版", "修手版"])
+        self.assertEqual(out.brief, _draw("修手版"))
         self.assertEqual(out.images, ["img-2"])
         self.assertEqual([r["redrew"] for r in out.log], [True, True, False])
 
+    def test_every_round_is_checked_the_way_the_lead_is(self):
+        """A round's answer goes through the same check as the lead's (keys
+        exposed that nobody wrote); what the app sent back is in the log."""
+        world = FakeWorld([{**_verdict("就这样。"), "checks": [{"note": "n", "answer": {}}]}])
+        check = lambda answer: ""  # noqa: E731
+        hooks = world.hooks()
+        hooks.check_answer = check
+        with mock.patch.object(llm, "reflect_turn", world.reflect):
+            out = reflection.run(
+                base_history=[{"role": "user", "content": "画林"}], first_reply="给你一张。",
+                brief=_draw("林站在城墙上"), nai_prompts=_prompts("tag-0"), images=["img-0"],
+                rounds=1, hooks=hooks,
+            )
+        self.assertEqual(world.checks, [check])
+        self.assertEqual(out.log[0]["checks"], ["n"])
+
+    def test_the_redraw_is_handed_the_whole_verdict(self):
+        """A round may write entries beside its redraw; the two travel
+        together, so the pipeline writes them before it draws from them."""
+        entry = {"key": "光", "category": "光", "note": "逆光", "positive": "backlighting",
+                 "negative": "", "prose": ""}
+        world = FakeWorld([_verdict("逆光才对。", _draw("逆光版", ["光"]), settings=[entry]), _verdict("好")])
+        run_loop(world, rounds=3)
+        self.assertEqual(len(world.painted), 1)
+        self.assertEqual(world.painted[0]["settings"], [entry])
+        self.assertEqual(world.painted[0]["draw"], _draw("逆光版", ["光"]))
+
     def test_the_ceiling_is_the_ceiling(self):
         """Never satisfied: it stops at the number asked for, not one more."""
-        world = FakeWorld([{"reply": "还不行。", "draw": _brief("再来")}])
+        world = FakeWorld([_verdict("还不行。", _draw("再来"))])
         out = run_loop(world, rounds=3)
         self.assertEqual(out.rounds_run, 3)
         self.assertEqual(len(world.painted), 3)
         self.assertEqual(len(out.log), 3)
 
     def test_zero_rounds_does_nothing_at_all(self):
-        world = FakeWorld([{"reply": "x", "draw": None}])
+        world = FakeWorld([_verdict("x")])
         out = run_loop(world, rounds=0)
         self.assertEqual(world.seen, [])
         self.assertEqual(out.log, [])
         self.assertEqual(out.images, ["img-0"])
 
     def test_a_turn_that_painted_nothing_is_not_reflected_on(self):
-        world = FakeWorld([{"reply": "x", "draw": None}])
+        world = FakeWorld([_verdict("x")])
         out = run_loop(world, rounds=3, images=())
         self.assertEqual(world.seen, [])
         self.assertEqual(out.rounds_run, 0)
 
     def test_superseded_pictures_are_handed_back_to_be_dropped(self):
         world = FakeWorld([
-            {"reply": "改", "draw": _brief("二版")},
-            {"reply": "好", "draw": None},
+            _verdict("改", _draw("二版")),
+            _verdict("好"),
         ])
         out = run_loop(world, rounds=3)
         self.assertEqual(world.discarded, ["img-0"])
         self.assertEqual(out.images, ["img-1"])
 
     def test_a_redraw_that_produces_nothing_keeps_what_there_was(self):
-        world = FakeWorld([{"reply": "改", "draw": _brief("二版")}])
-        world.redraw = lambda brief: (_prompts("x"), [])
+        world = FakeWorld([_verdict("改", _draw("二版"))])
+        world.redraw = lambda verdict: (_prompts("x"), [])
         out = run_loop(world, rounds=3)
         self.assertEqual(out.images, ["img-0"])
-        self.assertEqual(out.brief, _brief("林站在城墙上"))
+        self.assertEqual(out.brief, _draw("林站在城墙上"))
 
 
 class RetryInsideARunTests(TestCase):
@@ -180,21 +217,21 @@ class RetryInsideARunTests(TestCase):
         calls = {"n": 0}
         real = world.redraw
 
-        def redraw(brief):
+        def redraw(verdict):
             calls["n"] += 1
             if calls["n"] <= failures:
                 if exc:
                     raise exc
                 return _prompts("dud"), []
-            return real(brief)
+            return real(verdict)
 
         world.redraw = redraw
         return calls
 
     def test_a_hiccup_is_retried_for_free(self):
         world = FakeWorld([
-            {"reply": "改", "draw": _brief("二版")},
-            {"reply": "好", "draw": None},
+            _verdict("改", _draw("二版")),
+            _verdict("好"),
         ])
         calls = self._flaky(world, failures=1)
         out = run_loop(world, rounds=3)
@@ -207,8 +244,8 @@ class RetryInsideARunTests(TestCase):
 
     def test_an_exception_is_a_hiccup_too(self):
         world = FakeWorld([
-            {"reply": "改", "draw": _brief("二版")},
-            {"reply": "好", "draw": None},
+            _verdict("改", _draw("二版")),
+            _verdict("好"),
         ])
         calls = self._flaky(world, failures=2, exc=RuntimeError("novelai 502"))
         out = run_loop(world, rounds=3)
@@ -219,7 +256,7 @@ class RetryInsideARunTests(TestCase):
         )
 
     def test_past_the_free_ones_each_attempt_costs_a_round(self):
-        world = FakeWorld([{"reply": "改", "draw": _brief("二版")}])
+        world = FakeWorld([_verdict("改", _draw("二版"))])
         calls = self._flaky(world, failures=99)
         out = run_loop(world, rounds=4)
         paid = [e for e in out.log if e.get("paid")]
@@ -231,7 +268,7 @@ class RetryInsideARunTests(TestCase):
 
     def test_it_cannot_run_forever(self):
         """The point of paying: a broken generator is bounded by the slider."""
-        world = FakeWorld([{"reply": "改", "draw": _brief("二版")}])
+        world = FakeWorld([_verdict("改", _draw("二版"))])
         calls = self._flaky(world, failures=10_000)
         run_loop(world, rounds=2)
         # 2 rounds → 1 look, 1 round left to spend: 1 first try + 2 free + 1 paid
@@ -241,7 +278,7 @@ class RetryInsideARunTests(TestCase):
         class Cancelled(Exception):
             pass
 
-        world = FakeWorld([{"reply": "改", "draw": _brief("二版")}])
+        world = FakeWorld([_verdict("改", _draw("二版"))])
         self._flaky(world, failures=99, exc=Cancelled("stop"))
         hooks = world.hooks()
         hooks.fatal = (Cancelled,)
@@ -250,12 +287,12 @@ class RetryInsideARunTests(TestCase):
                 reflection.run(
                     base_history=[{"role": "user", "content": "画林"}],
                     first_reply="给你一张。",
-                    brief=_brief("林"), nai_prompts=_prompts("tag-0"),
+                    brief=_draw("林"), nai_prompts=_prompts("tag-0"),
                     images=["img-0"], rounds=5, hooks=hooks,
                 )
 
     def test_the_free_count_is_a_dial(self):
-        world = FakeWorld([{"reply": "改", "draw": _brief("二版")}])
+        world = FakeWorld([_verdict("改", _draw("二版"))])
         calls = self._flaky(world, failures=99)
         with mock.patch.object(
             reflection, "SHAPE", reflection.ReflectionShape(free_retries=0)
@@ -275,21 +312,21 @@ class APictureAlreadyMadeIsNeverLostTests(TestCase):
     """
 
     def test_a_look_that_keeps_failing_ends_with_the_picture_it_had(self):
-        world = FakeWorld([{"reply": "x", "draw": None}])
+        world = FakeWorld([_verdict("x")])
         world.reflect = mock.Mock(side_effect=RuntimeError("deepseek 500"))
         out = run_loop(world, rounds=3)
         self.assertEqual(out.images, ["img-0"])
-        self.assertEqual(out.brief, _brief("林站在城墙上"))
+        self.assertEqual(out.brief, _draw("林站在城墙上"))
         self.assertTrue(out.log[-1].get("gave_up"))
 
     def test_the_look_gets_free_retries_before_it_costs_a_round(self):
         calls = {"n": 0}
 
-        def flaky(messages, on_retry=None):
+        def flaky(messages, on_retry=None, check=None):
             calls["n"] += 1
             if calls["n"] <= 2:
                 raise RuntimeError("empty content")
-            return {"reply": "这回看清楚了", "draw": None}
+            return _verdict("这回看清楚了")
 
         world = FakeWorld([])
         world.reflect = flaky
@@ -299,7 +336,7 @@ class APictureAlreadyMadeIsNeverLostTests(TestCase):
         self.assertFalse([e for e in out.log if e.get("paid")])
 
     def test_a_redraw_that_keeps_failing_ends_with_the_picture_it_had(self):
-        world = FakeWorld([{"reply": "改", "draw": _brief("二版")}])
+        world = FakeWorld([_verdict("改", _draw("二版"))])
         world.redraw = mock.Mock(side_effect=RuntimeError("novelai 502"))
         out = run_loop(world, rounds=3)
         self.assertEqual(out.images, ["img-0"])
@@ -307,12 +344,12 @@ class APictureAlreadyMadeIsNeverLostTests(TestCase):
 
     def test_even_something_nobody_planned_for_leaves_the_picture(self):
         """A bug in the loop is still not a reason to lose a paid-for picture."""
-        world = FakeWorld([{"reply": "改", "draw": _brief("二版")}])
+        world = FakeWorld([_verdict("改", _draw("二版"))])
         world.hooks = mock.Mock(side_effect=AssertionError("something silly"))
         out = reflection.run(
             base_history=[{"role": "user", "content": "画林"}],
             first_reply="给你一张。",
-            brief=_brief("林"),
+            brief=_draw("林"),
             nai_prompts=_prompts("tag-0"),
             images=["img-0"],
             rounds=3,
@@ -340,7 +377,7 @@ class APictureAlreadyMadeIsNeverLostTests(TestCase):
         )
         with self.assertRaises(Cancelled):
             reflection.run(
-                base_history=[], first_reply="x", brief=_brief("林"),
+                base_history=[], first_reply="x", brief=_draw("林"),
                 nai_prompts=_prompts("t"), images=["img-0"], rounds=3, hooks=hooks,
             )
 
@@ -352,7 +389,7 @@ class WhatTheModelSeesTests(TestCase):
     """
 
     def test_the_first_look_carries_the_history_the_turn_and_the_picture(self):
-        world = FakeWorld([{"reply": "好", "draw": None}])
+        world = FakeWorld([_verdict("好")])
         run_loop(world, base=[{"role": "user", "content": "画林站在城墙上"}])
         sent = world.seen[0]
         blob = json.dumps(sent, ensure_ascii=False)
@@ -364,21 +401,34 @@ class WhatTheModelSeesTests(TestCase):
         # a round is another turn in the same conversation, and a model reads
         # its own turns as examples of how to answer
         said = [m for m in sent if m["role"] == "assistant"][-1]["content"]
-        self.assertEqual(set(json.loads(said)), {"reply", "draw", "edits"})
+        answer = json.loads(said)
+        self.assertEqual(set(answer), {"reply", "settings", "characters", "edits", "draw"})
+        self.assertEqual(answer["draw"], _draw("林站在城墙上"))
         # and the tags, which the drawing model wrote, are in the app's turn
         self.assertNotIn("tag-0", said)
 
     def test_the_third_look_still_carries_the_first_two(self):
         world = FakeWorld([
-            {"reply": "一版太软", "draw": _brief("二版")},
-            {"reply": "二版手坏了", "draw": _brief("三版")},
-            {"reply": "行了", "draw": None},
+            _verdict("一版太软", _draw("二版")),
+            _verdict("二版手坏了", _draw("三版")),
+            _verdict("行了"),
         ])
         run_loop(world, rounds=4)
         blob = json.dumps(world.seen[-1], ensure_ascii=False)
         for earlier in ("一版太软", "二版手坏了", "二版", "三版", "tag-0", "tag-1", "tag-2"):
             self.assertIn(earlier, blob)
         self.assertEqual(blob.count("data:image/jpeg"), 3)   # every round's picture
+
+    def test_a_round_s_own_answer_is_shown_back_in_the_shape_it_gave_it(self):
+        world = FakeWorld([
+            _verdict("一版太软", _draw("二版", ["光"])),
+            _verdict("行了"),
+        ])
+        run_loop(world, rounds=3)
+        answers = [json.loads(m["content"]) for m in world.seen[-1] if m["role"] == "assistant"]
+        self.assertEqual(answers[-1]["reply"], "一版太软")
+        self.assertEqual(answers[-1]["draw"], _draw("二版", ["光"]))
+        self.assertEqual(set(answers[-1]), {"reply", "settings", "characters", "edits", "draw"})
 
     def test_progress_says_which_round_and_which_stage_of_it(self):
         """
@@ -389,16 +439,16 @@ class WhatTheModelSeesTests(TestCase):
         written inside it comes out under it.
         """
         world = FakeWorld([
-            {"reply": "改", "draw": _brief("二版")},
-            {"reply": "好", "draw": None},
+            _verdict("改", _draw("二版")),
+            _verdict("好"),
         ])
 
-        def redraw_that_reports(brief):
+        def redraw_that_reports(verdict):
             world.hooks().set_phase  # the real one paints, and paints report
             world.phases.append(
                 f"{world.prefix}:painting:0/1" if world.prefix else "painting:0/1"
             )
-            world.painted.append(brief)
+            world.painted.append(verdict)
             return _prompts("tag-1"), ["img-1"]
 
         world.redraw = redraw_that_reports
@@ -411,16 +461,15 @@ class WhatTheModelSeesTests(TestCase):
 
 
 @override_settings(**TEST_CREDS)
-@override_settings(**TEST_CREDS)
 class OrdinaryTurnRetriesTests(TestCase):
     """
     A plain turn gets the same two free attempts a run does.
 
     The provider already retries an answer it cannot parse, but that is not the
-    only way a step comes back useless — valid JSON with an empty base_prompt,
-    a NovelAI timeout, a vendor having a minute. None of those were retried:
-    the turn failed and the user pressed 重跑 by hand, which is the same retry
-    with a person doing the waiting.
+    only way a step comes back useless — valid JSON that assembles to an empty
+    prompt, a NovelAI timeout, a vendor having a minute. None of those were
+    retried: the turn failed and the user pressed 重跑 by hand, which is the
+    same retry with a person doing the waiting.
     """
 
     def setUp(self):
@@ -433,22 +482,22 @@ class OrdinaryTurnRetriesTests(TestCase):
     def _run(self, lead_failures=0, draw_failures=0):
         calls = {"lead": 0, "draw": 0}
 
-        def lead(messages, on_retry=None, on_lookup=None):
+        def lead(messages, on_retry=None, on_lookup=None, check=None):
             calls["lead"] += 1
             if calls["lead"] <= lead_failures:
                 raise llm.ModelError("deepseek returned empty content")
             return LEAD_RESULT
 
-        def draw(brief, lib="", lines=None, on_retry=None, on_lookup=None, **kw):
+        def draw(description, exposed, *, text="", size="", on_retry=None, on_lookup=None):
             calls["draw"] += 1
             if calls["draw"] <= draw_failures:
-                raise llm.ModelError("drawing model returned an empty base_prompt")
+                raise llm.ModelError("drawing model returned an empty prompt")
             return DRAW_RESULT
 
         with _sync_jobs(), mock.patch.object(
             pipeline.llm, "lead_turn", lead
         ), mock.patch.object(
-            pipeline.llm, "draw_turn", draw
+            pipeline.llm, "draw", draw
         ), mock.patch.object(
             pipeline.novelai, "generate_one", return_value=(_png(), 7)
         ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
@@ -505,7 +554,7 @@ class ReflectionStaysOutOfTheConversationTests(TestCase):
         self.msg = Message.objects.create(
             conversation=self.conv, seq=2, role="assistant", status="done", kind="image",
             content="给你一张。",
-            draw_brief=_brief("最终版"),
+            draw_brief=_draw("最终版"),
             nai_prompts=_prompts("final-tag"),
             reflection_log=[
                 {"round": 1, "reply": "光太软，我重画。", "redrew": True},
@@ -554,8 +603,6 @@ class ReflectionStaysOutOfTheConversationTests(TestCase):
         self.assertTrue(row["reflection_log"][0]["redrew"])
 
 
-@override_settings(**TEST_CREDS)
-@override_settings(**TEST_CREDS)
 @override_settings(**TEST_CREDS)
 class StickyReferencesTests(TestCase):
     """
@@ -792,9 +839,10 @@ class DrawingTemperatureTests(TestCase):
     """
     The drawing model translates; the lead model writes.
 
-    One picture description should come back as the same tags, so the drawing
-    call asks for temperature 0. The lead call is left on the vendor default —
-    that one is composing, and a default tuned for composing is the right one.
+    One description with one set of entries should come back as the same
+    tags, so the drawing call asks for temperature 0. The lead call is left
+    on the vendor default — that one is composing, and a default tuned for
+    composing is the right one.
     """
 
     def _params_of(self, run):
@@ -811,9 +859,11 @@ class DrawingTemperatureTests(TestCase):
                 seen.update(kw)
                 return providers.base.Completion(
                     parsed={
-                        "reply": "好", "draw": None, "edits": None,
-                        "size": "portrait", "scene": "1girl",
-                        "character_prompts": [], "negative_prompt": "",
+                        # enough for either schema: the lead's answer and the
+                        # drawing model's, side by side
+                        "reply": "好", "settings": [], "characters": [], "edits": None, "draw": None,
+                        "entries": [], "positive": "1girl", "negative": "", "prose": "",
+                        "subjects": [], "size": "portrait",
                     },
                     usage={},
                 )
@@ -823,7 +873,7 @@ class DrawingTemperatureTests(TestCase):
         return seen
 
     def test_the_drawing_call_asks_for_zero(self):
-        seen = self._params_of(lambda: llm.draw_turn({"main": "x", "size": "portrait"}))
+        seen = self._params_of(lambda: llm.draw("x", []))
         self.assertEqual(seen["temperature"], 0.0)
 
     def test_the_lead_call_does_not_ask_at_all(self):
@@ -837,9 +887,7 @@ class DrawingTemperatureTests(TestCase):
 
     def test_it_is_a_setting_rather_than_a_literal(self):
         with override_settings(DRAW_TEMPERATURE=0.4):
-            seen = self._params_of(
-                lambda: llm.draw_turn({"main": "x", "size": "portrait"})
-            )
+            seen = self._params_of(lambda: llm.draw("x", []))
         self.assertEqual(seen["temperature"], 0.4)
 
 
@@ -861,15 +909,21 @@ class ReflectionSchemaTests(TestCase):
         reflect = set(llm.REFLECT_SCHEMA["schema"]["properties"])
         self.assertTrue(reflect <= lead, f"{reflect - lead} is new")
 
+    def test_reflection_answers_in_the_lead_s_whole_shape(self):
+        """Entries and project edits included: a round may write them too."""
+        self.assertEqual(llm.REFLECT_SCHEMA["schema"]["required"], llm.LEAD_SCHEMA["schema"]["required"])
+        self.assertEqual(set(llm.REFLECT_SCHEMA["schema"]["required"]),
+                         {"reply", "settings", "characters", "edits", "draw"})
+
 
 class ReflectionShapeTests(TestCase):
     """The dials, which exist so the loop's appetite is one edit to change."""
 
     def test_how_many_rounds_come_back_follows_the_dial(self):
         verdicts = [
-            {"reply": "第一轮的评语", "draw": _brief("二版")},
-            {"reply": "第二轮的评语", "draw": _brief("三版")},
-            {"reply": "第三轮的评语", "draw": None},
+            _verdict("第一轮的评语", _draw("二版")),
+            _verdict("第二轮的评语", _draw("三版")),
+            _verdict("第三轮的评语"),
         ]
         wide = FakeWorld(list(verdicts))
         run_loop(wide, rounds=4)
@@ -888,7 +942,7 @@ class ReflectionShapeTests(TestCase):
         self.assertIn("给你一张。", last)
 
     def test_pictures_per_round_follows_the_dial(self):
-        world = FakeWorld([{"reply": "x", "draw": None}])
+        world = FakeWorld([_verdict("x")])
         with mock.patch.object(
             reflection, "SHAPE", reflection.ReflectionShape(max_images_per_round=1)
         ):
@@ -899,8 +953,8 @@ class ReflectionShapeTests(TestCase):
 
     def test_keeping_superseded_pictures_is_one_flag(self):
         world = FakeWorld([
-            {"reply": "改", "draw": _brief("二版")},
-            {"reply": "好", "draw": None},
+            _verdict("改", _draw("二版")),
+            _verdict("好"),
         ])
         with mock.patch.object(
             reflection, "SHAPE",
@@ -910,17 +964,32 @@ class ReflectionShapeTests(TestCase):
         self.assertEqual(world.discarded, [])
 
 
+FIRST = "一个银发少女站在城墙上"
+
 LEAD_RESULT = {
     "reply": "给你一张。",
-    "draw": {"main": "一个银发少女站在城墙上", "size": "portrait"},
-    "edits": None,
+    "settings": [], "characters": [], "edits": None,
+    "draw": _draw(FIRST),
     "usage": {"prompt_tokens": 10, "completion_tokens": 5},
 }
-DRAW_RESULT = {
-    "n_images": 1, "size": "portrait", "base_prompt": "1girl, wall",
-    "character_prompts": [], "negative_prompt": "",
-    "usage": {"prompt_tokens": 5, "completion_tokens": 5},
-}
+
+
+def _drawn(description: str) -> dict:
+    """What llm.draw hands back for one description: the prompt assembled
+    from the drawing model's answer, beside its working."""
+    return {
+        "nai_prompts": {"size": "portrait", "base_prompt": f"tags for {description}",
+                        "character_prompts": [], "negative_prompt": ""},
+        "assembly": [],
+        "answer": {"entries": {}, "positive": [], "negative": [], "prose": "", "subjects": [], "size": "portrait"},
+        "asked": description,
+        "reasoning": f"thought about {description}",
+        "lookups": [],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 5},
+    }
+
+
+DRAW_RESULT = _drawn(FIRST)
 
 
 @override_settings(**TEST_CREDS)
@@ -929,8 +998,8 @@ class ReflectionThroughThePipelineTests(TestCase):
     The loop's own tests run against counters. This one runs the real
     run_generation with only the outside world stubbed, because the things that
     can only break here are the database ones: whether the superseded pictures
-    are really gone, and whether the row ends up describing the picture it
-    actually kept.
+    are really gone, whether the row ends up describing the picture it
+    actually kept, and what a round's entries and edits do to the library.
     """
 
     def setUp(self):
@@ -940,31 +1009,28 @@ class ReflectionThroughThePipelineTests(TestCase):
         )
         self.conv = Conversation.objects.create(title="反思一轮")
 
-    def _send(self, rounds, verdicts):
+    def _send(self, rounds, verdicts, *, lead=None, draw=None, generate=None, reflect=None):
         seen = {"n": 0}
 
-        def reflect(messages, on_retry=None):
+        def look(messages, on_retry=None, check=None):
+            if not verdicts:
+                raise RuntimeError("deepseek 500")
             v = verdicts[min(seen["n"], len(verdicts) - 1)]
             seen["n"] += 1
             return {**v, "usage": {}}
 
-        def edit(picture, brief, truth, lib="", lines=None, on_retry=None, on_lookup=None, **kw):
-            # a reflection redraw is an edit of the picture being looked at
-            return {**DRAW_RESULT, "base_prompt": f"tags for {brief['change']}"}
+        def drawn(description, exposed, *, text="", size="", on_retry=None, on_lookup=None):
+            return _drawn(description)
 
         with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=LEAD_RESULT
+            pipeline.llm, "lead_turn", return_value=lead or LEAD_RESULT
         ), mock.patch.object(
-            pipeline.llm, "draw_turn", side_effect=lambda brief, lib="", lines=None, on_retry=None, on_lookup=None, **kw: {
-                **DRAW_RESULT, "base_prompt": f"tags for {brief['main']}"
-            }
+            pipeline.llm, "draw", side_effect=draw or drawn
         ), mock.patch.object(
-            pipeline.llm, "draw_edit", side_effect=edit
+            llm, "reflect_turn", reflect or look
         ), mock.patch.object(
-            llm, "reflect_turn", reflect
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png(), 7)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
+            pipeline.novelai, "generate_one", side_effect=generate or (lambda *a, **k: (_png(), 7))
+        ):
             r = self.client.post(
                 f"/api/conversations/{self.conv.id}/messages",
                 {"text": "画一张", "n_images": "1", "reflection_rounds": str(rounds)},
@@ -983,63 +1049,49 @@ class ReflectionThroughThePipelineTests(TestCase):
             if calls["n"] > 1:
                 raise pipeline.novelai.NovelAIError("novelai timed out")
             return _png(), 7
-        verdicts = [{"reply": "光太软。", "draw": {"change": "硬光版"}}, {"reply": "算了。", "draw": None}]
-        seen = {"n": 0}
 
-        def reflect(messages, on_retry=None):
-            v = verdicts[min(seen["n"], len(verdicts) - 1)]
-            seen["n"] += 1
-            return {**v, "usage": {}}
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=LEAD_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value={**DRAW_RESULT, "base_prompt": "tags for first"}
-        ), mock.patch.object(
-            pipeline.llm, "draw_edit", return_value={**DRAW_RESULT, "base_prompt": "tags for 硬光版"}
-        ), mock.patch.object(
-            llm, "reflect_turn", reflect
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", side_effect=flaky
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.client.post(f"/api/conversations/{self.conv.id}/messages",
-                             {"text": "画一张", "n_images": "1", "reflection_rounds": "1"})
-        msg = self.conv.messages.filter(role="assistant").order_by("-seq").first()
-        assert msg is not None
+        msg = self._send(1, [_verdict("光太软。", _draw("硬光版")), _verdict("算了。")], generate=flaky)
         self.assertEqual(msg.status, "done")
         # the redraw never painted: the first picture stays, and the log does
         # not claim a redraw happened
         self.assertEqual(msg.attachments.filter(kind="generated").count(), 1)
         self.assertEqual([x.get("redrew") for x in (msg.reflection_log or []) if "reply" in x], [False])
-        self.assertEqual((msg.nai_prompts or {})["base_prompt"], "tags for first")
-        # and the slot table behind the kept picture is the painted one, not the failed attempt's
-        self.assertIsInstance(msg.prompt, dict)
+        self.assertEqual((msg.nai_prompts or {})["base_prompt"], f"tags for {FIRST}")
+        # and the record behind the kept picture is the painted one's, not the
+        # failed attempt's: what it was drawn from, what the lead asked, and
+        # the drawing model's working
+        self.assertEqual((msg.prompt or {})["description"], FIRST)
+        self.assertEqual((msg.draw_brief or {})["description"], FIRST)
+        self.assertEqual((msg.model_raw or {})["draw_reasoning"], f"thought about {FIRST}")
 
     def test_a_redraw_leaves_only_the_last_picture_behind(self):
         msg = self._send(3, [
-            {"reply": "光太软。", "draw": {"change": "硬光版"}},
-            {"reply": "这回对了。", "draw": None},
+            _verdict("光太软。", _draw("硬光版")),
+            _verdict("这回对了。"),
         ])
         self.assertEqual(msg.status, "done")
         # two were painted, one survives
         self.assertEqual(msg.attachments.filter(kind="generated").count(), 1)
         self.assertEqual(Attachment.objects.filter(kind="generated").count(), 1)
-        # and the row describes the one it kept
-        self.assertEqual((msg.draw_brief or {})["change"], "硬光版")
+        # and the row describes the one it kept, record and all
+        self.assertEqual((msg.draw_brief or {})["description"], "硬光版")
         self.assertEqual((msg.nai_prompts or {})["base_prompt"], "tags for 硬光版")
+        self.assertEqual((msg.prompt or {})["description"], "硬光版")
+        self.assertEqual((msg.model_raw or {})["draw_reasoning"], "thought about 硬光版")
 
     def test_the_discarded_file_is_gone_from_disk_too(self):
         """An orphan blob in MEDIA_ROOT is what nobody notices for a year."""
         with mock.patch.object(pipeline, "_discard_images") as spy:
             self._send(2, [
-                {"reply": "改", "draw": {"change": "二版"}},
-                {"reply": "好", "draw": None},
+                _verdict("改", _draw("二版")),
+                _verdict("好"),
             ])
         handed_over = spy.call_args[0][0]
         self.assertEqual(len(handed_over), 1)
 
         msg = self._send(2, [
-            {"reply": "改", "draw": {"change": "三版"}},
-            {"reply": "好", "draw": None},
+            _verdict("改", _draw("三版")),
+            _verdict("好"),
         ])
         paths = [a.file.name for a in msg.attachments.filter(kind="generated")]
         self.assertEqual(len(paths), 1)
@@ -1049,16 +1101,16 @@ class ReflectionThroughThePipelineTests(TestCase):
 
     def test_the_log_lands_on_the_row(self):
         msg = self._send(3, [
-            {"reply": "光太软。", "draw": {"change": "硬光版"}},
-            {"reply": "这回对了。", "draw": None},
+            _verdict("光太软。", _draw("硬光版")),
+            _verdict("这回对了。"),
         ])
         self.assertEqual([r["round"] for r in msg.reflection_log or []], [1, 2])
         self.assertEqual([r["redrew"] for r in msg.reflection_log or []], [True, False])
 
     def test_the_visible_reply_is_still_what_was_said_to_the_user(self):
         msg = self._send(2, [
-            {"reply": "光太软。", "draw": {"change": "硬光版"}},
-            {"reply": "这回对了。", "draw": None},
+            _verdict("光太软。", _draw("硬光版")),
+            _verdict("这回对了。"),
         ])
         self.assertEqual(msg.content, "给你一张。")
 
@@ -1068,10 +1120,7 @@ class ReflectionThroughThePipelineTests(TestCase):
         and carries its picture, rather than saying 生成失败 about a picture
         that exists.
         """
-        with mock.patch.object(
-            llm, "reflect_turn", mock.Mock(side_effect=RuntimeError("deepseek 500"))
-        ):
-            msg = self._send(3, [])
+        msg = self._send(3, [], reflect=mock.Mock(side_effect=RuntimeError("deepseek 500")))
         self.assertEqual(msg.status, "done")
         self.assertEqual(msg.error, "")
         self.assertEqual(msg.attachments.filter(kind="generated").count(), 1)
@@ -1079,11 +1128,252 @@ class ReflectionThroughThePipelineTests(TestCase):
 
     def test_with_the_slider_at_zero_nothing_reflects(self):
         called = []
-        with mock.patch.object(llm, "reflect_turn", lambda *a, **k: called.append(1)):
-            msg = self._send(0, [])
+        msg = self._send(0, [], reflect=lambda *a, **k: called.append(1))
         self.assertEqual(called, [])
         self.assertIsNone(msg.reflection_log)
         self.assertEqual(msg.attachments.filter(kind="generated").count(), 1)
+
+    def test_a_redraw_follows_the_main_seed_of_the_picture_it_looks_at(self):
+        """
+        The same drawing, repainted: the seed is the one the picture it is
+        judging was painted with, so what the lead did not change stays where
+        it was. The first picture of the turn, with no drawing before it in
+        the conversation, rolls its own.
+        """
+        seeds: list = []
+
+        def painter(*a, **k):
+            seeds.append(k.get("seed"))
+            return _png(), 41 if len(seeds) == 1 else 99
+
+        msg = self._send(2, [_verdict("改", _draw("二版")), _verdict("好")], generate=painter)
+        self.assertEqual(seeds, [None, 41])
+        self.assertEqual([a.seed for a in msg.attachments.filter(kind="generated")], [99])
+
+    def test_a_redraw_keeps_the_drawing_s_id_and_inherits_its_exposure(self):
+        """
+        A round continues the picture it is looking at: the entries that
+        picture exposed are exposed again, under the same drawing id -- the
+        lead was told it need not name either.
+        """
+        self.conv.selected_settings.add(Setting.objects.create(conversation=self.conv, title="画风", category="画风",
+                                                               positive=["watercolor (medium)"]))
+        ids: list[str] = []
+        exposures: list[list[str]] = []
+
+        def drawn(description, exposed, **kw):
+            exposures.append([e["key"] for e in exposed])
+            return _drawn(description)
+
+        def look(messages, on_retry=None, check=None):
+            row = Message.objects.get(conversation=self.conv, role="assistant", status="pending")
+            ids.append((row.nai_prompts or {})["draw_id"])
+            return {**(_verdict("改", _draw("二版")) if len(ids) == 1 else _verdict("好")), "usage": {}}
+
+        msg = self._send(3, [], lead={**LEAD_RESULT, "draw": _draw(FIRST, ["画风"])}, draw=drawn, reflect=look)
+        self.assertEqual(exposures, [["画风"], ["画风"]])
+        self.assertEqual(ids, [(msg.nai_prompts or {})["draw_id"]] * 2)
+        self.assertEqual((msg.prompt or {})["exposed_keys"], ["画风"])
+        # a new picture redrawn is still a new picture: it continues nothing
+        self.assertEqual((msg.prompt or {})["inherits"], "")
+        self.assertEqual((msg.draw_brief or {})["inherits"], "")
+
+    def test_an_edit_redrawn_by_a_round_still_says_what_it_edits(self):
+        """The turn continues the drawing the lead's answer named; a round
+        redraws the same turn, so the record keeps naming that drawing --
+        the 改自 mark on screen reads it."""
+        first = self._send(0, [], lead={**LEAD_RESULT, "draw": _draw(FIRST)})
+        earlier = (first.nai_prompts or {})["draw_id"]
+        edit = {**LEAD_RESULT, "draw": _draw("一版，改了光", inherits=earlier)}
+        msg = self._send(2, [_verdict("再改", _draw("二版")), _verdict("好")], lead=edit)
+        self.assertTrue(any(r.get("redrew") for r in msg.reflection_log or []))
+        self.assertEqual((msg.draw_brief or {})["inherits"], earlier)
+        self.assertEqual((msg.prompt or {})["inherits"], earlier)
+        # and a round that names another drawing is taken at its word
+        third = self._send(2, [_verdict("接着第一张", _draw("三版", inherits=earlier)), _verdict("好")],
+                           lead={**LEAD_RESULT, "draw": _draw("新的一张")})
+        self.assertEqual((third.draw_brief or {})["inherits"], earlier)
+
+    def test_a_round_may_take_an_entry_out_of_the_picture(self):
+        self.conv.selected_settings.add(Setting.objects.create(conversation=self.conv, title="画风", category="画风",
+                                                               positive=["watercolor (medium)"]))
+        exposures: list[list[str]] = []
+
+        def drawn(description, exposed, **kw):
+            exposures.append([e["key"] for e in exposed])
+            return _drawn(description)
+
+        msg = self._send(2, [_verdict("画风不要了。", _draw("二版", ["-画风"])), _verdict("好")],
+                         lead={**LEAD_RESULT, "draw": _draw(FIRST, ["画风"])}, draw=drawn)
+        self.assertEqual(exposures, [["画风"], []])
+        self.assertEqual((msg.prompt or {})["exposed_keys"], [])
+
+    def test_a_round_writes_its_entries_before_it_draws_from_them(self):
+        """A round's `settings` go into the conversation's layer like the
+        lead's own, dated to this turn, and the redraw reads them."""
+        entry = {"key": "光", "category": "光", "note": "逆光", "positive": "backlighting",
+                 "negative": "", "prose": ""}
+        exposures: list[list[dict]] = []
+
+        def drawn(description, exposed, **kw):
+            exposures.append([dict(e) for e in exposed])
+            return _drawn(description)
+
+        msg = self._send(2, [_verdict("加个光。", _draw("二版", ["光"]), settings=[entry]), _verdict("好")],
+                         draw=drawn)
+        written = Setting.objects.get(conversation=self.conv, title="光")
+        self.assertEqual(written.positive, ["backlighting"])
+        self.assertEqual(written.origin_seq, msg.seq)
+        self.assertIn(written, self.conv.selected_settings.all())
+        self.assertEqual([[e["key"] for e in ex] for ex in exposures], [[], ["光"]])
+        self.assertEqual(exposures[1][0]["positive"], ["backlighting"])
+        self.assertIn(ui_text.LIBRARY_WRITTEN.format(what="+ 光"), (msg.model_raw or {})["edit_notes"])
+
+    def test_a_round_s_project_edit_is_drawn_from_before_anyone_approves_it(self):
+        """
+        An edit to a project entry made in reflection is drawn from at once
+        -- the redraw is made from the edited version -- and parked as one
+        proposal on this turn when the turn is over, not while it is still
+        being reflected on.
+        """
+        folder = Folder.objects.create(name="项目")
+        self.conv.folder = folder
+        self.conv.save()
+        style = Setting.objects.create(folder=folder, title="画风", category="画风", positive=["oil painting (medium)"])
+        self.conv.selected_settings.add(style)   # the person switched it on
+        edit = {"key": "@画风", "category": "画风", "note": "", "positive": "watercolor (medium)",
+                "negative": "", "prose": ""}
+        seen: list[dict] = []
+
+        def drawn(description, exposed, **kw):
+            row = Message.objects.get(conversation=self.conv, role="assistant", status="pending")
+            seen.append({"exposed": [dict(e) for e in exposed], "status": row.status,
+                         "proposals": LibraryProposal.objects.filter(conversation=self.conv).count()})
+            return _drawn(description)
+
+        msg = self._send(2, [_verdict("画风不对。", _draw("二版"), edits={"settings": [edit], "characters": []}),
+                             _verdict("好")],
+                         lead={**LEAD_RESULT, "draw": _draw(FIRST, ["@画风"])}, draw=drawn)
+        self.assertEqual(msg.status, "done")
+        # the first picture from the project's entry, the redraw from the edit
+        self.assertEqual([s["exposed"][0]["positive"] for s in seen],
+                         [["oil painting (medium)"], ["watercolor (medium)"]])
+        self.assertTrue(seen[1]["exposed"][0].get("edited_this_turn"))
+        self.assertEqual([s["proposals"] for s in seen], [0, 0])
+        self.assertEqual([s["status"] for s in seen], ["pending", "pending"])
+        # the project itself waits for the button
+        self.assertEqual(Setting.objects.get(folder=folder, title="画风").positive, ["oil painting (medium)"])
+        parked = LibraryProposal.objects.get(conversation=self.conv)
+        self.assertEqual((parked.message_id, parked.status), (msg.id, "pending"))
+        listed = self.client.get(f"/api/conversations/{self.conv.id}/proposals").json()["proposals"]
+        self.assertEqual([(p["message_id"], p["status"]) for p in listed], [(str(msg.id), "pending")])
+        self.assertEqual((msg.prompt or {})["exposed"][0]["positive"], ["watercolor (medium)"])
+
+
+    def test_nothing_is_written_while_the_turn_is_still_drawing(self):
+        """The lead's entries and a round's are drawn from at once and written
+        into the library only when the turn's pictures are settled: while it
+        is reflecting, the library does not have them yet."""
+        lead = {**LEAD_RESULT, "settings": [{"key": "黄昏", "category": "光", "note": "傍晚", "positive": "sunset",
+                                             "negative": "", "prose": ""}],
+                "draw": _draw(FIRST, ["黄昏"])}
+        during: list[bool] = []
+        exposed: list[list[str]] = []
+        seen = {"n": 0}
+
+        def look(messages, on_retry=None, check=None):
+            during.append(Setting.objects.filter(conversation=self.conv).exists())
+            seen["n"] += 1
+            if seen["n"] == 1:
+                return {**_verdict("加一层雾。", _draw("二版", ["雾"]), settings=[
+                    {"key": "雾", "category": "天气", "note": "", "positive": "fog", "negative": "", "prose": ""}]),
+                        "usage": {}}
+            return {**_verdict("好"), "usage": {}}
+
+        def drawn(description, exposed_entries, **kw):
+            exposed.append([e["key"] for e in exposed_entries])
+            return _drawn(description)
+
+        msg = self._send(2, [], lead=lead, draw=drawn, reflect=look)
+        self.assertEqual(msg.status, "done")
+        self.assertEqual(during, [False, False])
+        self.assertEqual(exposed, [["黄昏"], ["黄昏", "雾"]])
+        self.assertEqual(sorted(Setting.objects.filter(conversation=self.conv).values_list("title", flat=True)),
+                         ["雾", "黄昏"])
+        self.assertTrue(all(s.origin_seq == msg.seq for s in Setting.objects.filter(conversation=self.conv)))
+        # one line in the inspector for the whole turn's writes
+        notes = [n for n in (msg.model_raw or {}).get("edit_notes") or [] if "黄昏" in n]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("雾", notes[0])
+
+    def test_a_round_whose_picture_is_not_kept_leaves_nothing_behind(self):
+        """A round rewrote an entry and its redraw painted nothing: the turn
+        keeps the picture it had, and the library what that picture was drawn
+        from."""
+        lead = {**LEAD_RESULT, "settings": [{"key": "黄昏", "category": "光", "note": "傍晚", "positive": "sunset",
+                                             "negative": "", "prose": ""}],
+                "draw": _draw(FIRST, ["黄昏"])}
+        calls = {"n": 0}
+
+        def flaky(*a, **k):
+            calls["n"] += 1
+            if calls["n"] > 1:
+                raise pipeline.novelai.NovelAIError("novelai timed out")
+            return _png(), 7
+
+        rewrite = {"key": "黄昏", "category": "光", "note": "", "positive": "night", "negative": "", "prose": ""}
+        msg = self._send(1, [_verdict("改成夜里。", _draw("夜版", ["黄昏"]), settings=[rewrite]), _verdict("算了。")],
+                         lead=lead, generate=flaky)
+        self.assertEqual(msg.status, "done")
+        self.assertEqual(Setting.objects.get(conversation=self.conv, title="黄昏").positive, ["sunset"])
+
+    def test_two_rounds_editing_one_project_entry_make_one_proposal_with_the_later_edit(self):
+        folder = Folder.objects.create(name="项目")
+        self.conv.folder = folder
+        self.conv.save()
+        Setting.objects.create(folder=folder, title="画风", category="画风", positive=["oil painting (medium)"])
+
+        def edit(tags: str) -> dict:
+            return {"settings": [{"key": "@画风", "category": "画风", "note": "", "positive": tags,
+                                  "negative": "", "prose": ""}], "characters": []}
+
+        msg = self._send(3, [_verdict("水彩。", _draw("二版"), edits=edit("watercolor (medium)")),
+                             _verdict("再淡一点。", _draw("三版"), edits=edit("watercolor (medium), pastel colors")),
+                             _verdict("好")],
+                         lead={**LEAD_RESULT, "draw": _draw(FIRST, ["@画风"])})
+        self.assertEqual(msg.status, "done")
+        parked = list(LibraryProposal.objects.filter(conversation=self.conv))
+        self.assertEqual(len(parked), 1)
+        self.assertEqual(parked[0].payload["settings"][0]["positive"], "watercolor (medium), pastel colors")
+        self.assertEqual(Setting.objects.get(folder=folder, title="画风").positive, ["oil painting (medium)"])
+
+    def test_a_turn_stopped_mid_reflection_writes_what_its_kept_picture_was_drawn_from(self):
+        """The user stops the turn while a round is redrawing: the turn keeps
+        the picture before it, and the library gets the writes that picture
+        was drawn from -- the lead's and the round that made it -- and not
+        the stopped round's."""
+        lead = {**LEAD_RESULT, "settings": [{"key": "黄昏", "category": "光", "note": "傍晚", "positive": "sunset",
+                                             "negative": "", "prose": ""}],
+                "draw": _draw(FIRST, ["黄昏"])}
+        fog = {"key": "雾", "category": "天气", "note": "", "positive": "fog", "negative": "", "prose": ""}
+        rain = {"key": "雨", "category": "天气", "note": "", "positive": "rain", "negative": "", "prose": ""}
+        drawn_n = {"n": 0}
+
+        def drawn(description, exposed_entries, **kw):
+            drawn_n["n"] += 1
+            if drawn_n["n"] == 3:
+                row = Message.objects.get(conversation=self.conv, role="assistant", status="pending")
+                Message.objects.filter(id=row.id).update(status="cancelled")
+                raise pipeline.PipelineCancelled()
+            return _drawn(description)
+
+        msg = self._send(3, [_verdict("加雾。", _draw("二版", ["雾"]), settings=[fog]),
+                             _verdict("再下点雨。", _draw("三版", ["雨"]), settings=[rain]),
+                             _verdict("好")],
+                         lead=lead, draw=drawn)
+        self.assertEqual(sorted(Setting.objects.filter(conversation=self.conv).values_list("title", flat=True)),
+                         ["雾", "黄昏"])
+        self.assertTrue(msg.attachments.filter(kind="generated").exists())
 
 
 def _sync_jobs():

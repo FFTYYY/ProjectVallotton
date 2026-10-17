@@ -18,10 +18,8 @@ import json
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 
-from core.models import Character, CharacterVariant, Folder
-from core.services import characters as characters_service
-
-from .tests import _project
+from core.models import Character, CharacterVariant, Conversation, Folder
+from core.services import characters as characters_service, library
 
 TEST_CREDS = {"APP_USERNAME": "yyy", "APP_PASSWORD": "pw"}
 
@@ -114,9 +112,9 @@ class ACharacterAlwaysHasAVariantTests(TestCase):
                                      role="assistant", status="done")
         p = LibraryProposal.objects.create(
             conversation_id=conv["id"], message=msg, folder=self.folder,
-            payload=_project({"settings": [],
-                              "characters": [{"name": "提案来的", "description": "d",
-                                              "variants": []}]}),
+            payload={"settings": [],
+                     "characters": [{"key": library.PROJECT_PREFIX + "提案来的", "note": "d",
+                                     "positive": "", "negative": "", "prose": "", "variants": []}]},
         )
         r = self.client.post(f"/api/proposals/{p.id}/resolve",
                              data='{"approve": true}',
@@ -125,6 +123,17 @@ class ACharacterAlwaysHasAVariantTests(TestCase):
         made = Character.objects.get(folder=self.folder, name="提案来的")
         self._library()
         self.assertEqual(self._variants(made), [characters_service.default_title()])
+
+    def test_the_leads_own_write_cannot_leave_one_empty_either(self):
+        """The conversation's layer is written without a proposal; the write
+        itself gives a costume-less character the default one, and switches
+        it on, since a character is in play through its costumes."""
+        conv = Conversation.objects.create(title="t", folder=self.folder)
+        library.write_conversation_entries(conv, 2, [], [
+            {"key": "猫", "note": "一只猫", "positive": "cat", "negative": "", "prose": "", "variants": []}])
+        made = Character.objects.get(conversation=conv, name="猫")
+        self.assertEqual(self._variants(made), [characters_service.default_title()])
+        self.assertEqual([v.title for v in conv.selected_variants.all()], [characters_service.default_title()])
 
     # ------------------------------------------------- order and repetition
 

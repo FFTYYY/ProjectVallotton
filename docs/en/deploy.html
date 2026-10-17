@@ -222,6 +222,8 @@ tar czf media-$(date +%F).tar.gz -C /srv/vallotton media</code></pre>
 <tr class="group"><td colspan="3">Drawing</td></tr>
 <tr><td class="req"><code>NOVELAI_API_KEY</code></td><td>—</td><td>NovelAI key, starting with <code>pst-</code>.</td></tr>
 <tr><td><code>NAI_MODEL</code></td><td><code>nai-diffusion-5-full</code></td><td>The NovelAI model used at Mid and High quality (Low quality always uses the previous generation, V4.5).</td></tr>
+<tr><td><code>NAI_PROMPT_TOKEN_LIMIT</code></td><td><code>1471</code></td><td>How long a prompt NovelAI reads, in tokens. A prompt that is longer gets one more model call before the picture to cut it down to this.</td></tr>
+<tr><td><code>NAI_PROMPT_TOKEN_RULE</code></td><td><code>total</code></td><td>How the limit is counted: <code>total</code> adds the picture's prompt and every character's prompt together, <code>each</code> counts them separately.</td></tr>
 <tr class="group"><td colspan="3">Reflection and continuous generation</td></tr>
 <tr><td><code>MAX_REFLECTION_ROUNDS</code></td><td><code>10</code></td><td>The highest value “Reflection rounds” can be set to.</td></tr>
 <tr><td><code>MAX_CONTINUOUS_ROUNDS</code></td><td><code>20</code></td><td>The highest value “Continuous” can be set to.</td></tr>

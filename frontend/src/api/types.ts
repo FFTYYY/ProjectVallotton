@@ -19,7 +19,11 @@ export interface Attachment {
 }
 
 export interface CharacterPrompt {
+  /** the character entry this prompt was assembled for */
+  key: string;
   prompt: string;
+  /** this character's own negative: its entry's and its outfits' */
+  negative: string;
   center_x: number | null;
   center_y: number | null;
 }
@@ -34,64 +38,62 @@ export interface NaiPrompts {
   negative_prompt: string;
 }
 
-/** the lead model's natural-language brief, handed to the drawing model */
-/** one subject of a picture, as the lead model wrote it */
-export interface BriefSubject {
-  who: string;
-  outfit?: string;
-  look?: string;
-  changes?: string;
-  doing?: string;
-  where?: string;
-}
-
 /**
- * What the lead model asked for. An edit carries `change` and `continues`;
- * a new picture carries its subjects and the picture around them.
+ * What the lead model asked for: the description the drawing model is handed,
+ * the entries it exposes, and the drawing this one edits (`inherits`, by id;
+ * empty for a new picture).
  */
 export interface DrawBrief {
-  change?: string;
-  /** the drawing this one changes, by id */
-  continues?: string;
-  subjects?: BriefSubject[];
-  composition?: string;
-  camera?: string;
-  scene?: string;
-  light?: string;
-  style?: string;
-  notes?: string;
-  size?: string;
-  /** rows written before subjects existed */
-  main?: string;
-  n_images?: number;
+  description: string;
+  expose: string[];
+  inherits: string;
+  text: string;
+  size: string;
 }
 
-/**
- * Which library entries were switched on when a picture was drawn, with the
- * text as it read then. The text is a copy: later edits to the library must
- * not rewrite what an old picture says it came from.
- */
 /** which library an entry lives in: the project's, or this conversation's own */
 export type EntryLayer = "conversation" | "project";
+export type EntryKind = "setting" | "character" | "variant";
 
-export interface SelectionSnapshot {
-  settings: { id: string; title: string; content?: string; layer?: EntryLayer }[];
-  characters: {
-    id: string;
-    name: string;
-    description?: string;
-    layer?: EntryLayer;
-    variants: { id: string; title: string; content?: string }[];
-  }[];
+/**
+ * One exposed entry as the drawing model read it, copied at the time: later
+ * edits to the library must not rewrite what an old picture says it came
+ * from. A variant's key is `character/outfit` and names its character.
+ */
+export interface SnapshotEntry {
+  id: string;
+  kind: EntryKind;
+  key: string;
+  layer: EntryLayer;
+  /** the key as the lead writes it: project entries carry `@` */
+  shown_key: string;
+  note: string;
+  positive: string[];
+  negative: string[];
+  prose: string;
+  /** the lead message that wrote it; null for one the user made */
+  origin_seq: number | null;
+  category?: string;
+  character?: string;
+  /** a project entry exposed in the form the lead proposed this turn */
+  edited_this_turn?: boolean;
 }
 
+/** what a picture exposed, in the lead's order, and the keys to inherit */
+export interface SelectionSnapshot {
+  entries: SnapshotEntry[];
+  keys: string[];
+}
+
+/** an exposed entry and what the drawing model made of it for this picture */
 export interface UsedEntry {
-  kind: "character" | "setting";
-  name: string;
-  /** the parts of the lines the picture used, in use order */
-  lines: string[];
-  /** how many of those lines this picture patched */
-  patches: number;
+  key: string;
+  kind: EntryKind;
+  /** false when the drawing model left it out of this picture */
+  used: boolean;
+  positive: string[];
+  negative: string[];
+  prose: string;
 }
 
 export type MessageStatus = "done" | "pending" | "error" | "cancelled";
@@ -113,7 +115,7 @@ export interface Message {
   /** which of this turn's pictures is the main one, by position */
   main_index: number;
   selection_snapshot: SelectionSnapshot | null;
-  /** what the picture actually took from the library: entry by entry, line by line */
+  /** what the picture actually took from the library: each exposed entry and what it came to */
   used_entries?: UsedEntry[];
   /** pictures of this batch that failed to paint, one line each */
   paint_errors?: string[];
@@ -206,48 +208,63 @@ export interface ProjectTree {
 
 /* ------------------------------------------------------------- library */
 
-/** one tag line of an entry: what it is, and the tags, under an id the app keeps */
-export interface TagLine {
-  id: string;
-  part: string;
-  tags: string;
+/**
+ * What every entry carries besides its note: the tags, the prose, and where
+ * it came from. The note is the person's words; the tags and prose are what
+ * the drawing model reads, written by the lead or by the patrol from the note.
+ */
+export interface EntryFields {
+  positive: string[];
+  negative: string[];
+  prose: string;
+  /** the lead message that wrote it; null for one the user made */
+  origin_seq: number | null;
+  /** the note was edited and the tags have not been rewritten from it yet */
+  lines_stale?: boolean;
 }
 
-export interface Variant {
+/** what a PATCH of an entry may carry; tags go as lists */
+export interface EntryPatch {
+  title?: string;
+  name?: string;
+  content?: string;
+  description?: string;
+  category?: string;
+  positive?: string[];
+  negative?: string[];
+  prose?: string;
+}
+
+export interface Variant extends EntryFields {
   id: string;
   title: string;
   content: string;
-  tags: TagLine[];
-  /** the text was edited and the lines have not been rewritten from it yet */
-  lines_stale?: boolean;
   position: number;
   /** only in selection payloads */
   selected?: boolean;
 }
 
-export interface Character {
+export interface Character extends EntryFields {
   id: string;
   folder_id: string | null;
   /** set on an entry that belongs to one conversation and shadows the project's */
   conversation_id: string | null;
   name: string;
   description: string;
-  tags: TagLine[];
-  lines_stale?: boolean;
   position: number;
   variants: Variant[];
   /** only in selection payloads: true when at least one variant is on */
   selected?: boolean;
 }
 
-export interface Setting {
+export interface Setting extends EntryFields {
   id: string;
   folder_id: string | null;
   conversation_id: string | null;
   title: string;
   content: string;
-  tags: TagLine[];
-  lines_stale?: boolean;
+  /** what kind of setting: style, camera, scene… as the lead named it */
+  category: string;
   position: number;
   selected?: boolean;
 }
@@ -268,19 +285,26 @@ export interface SelectionPayload {
 
 /* ------------------------------------------------------------- proposals */
 
-export interface ProposedSetting {
-  title: string;
-  content: string;
-  scope?: "project" | "conversation";
-  tags?: TagLine[];
+/**
+ * An entry as the lead proposed it for the project. The tags come as the
+ * lead wrote them — a comma-separated string or a list; lib/entries.tagList
+ * reads either.
+ */
+export interface ProposedEntry {
+  key: string;
+  note?: string;
+  positive?: string | string[];
+  negative?: string | string[];
+  prose?: string;
 }
 
-export interface ProposedCharacter {
-  name: string;
-  description: string;
-  scope?: "project" | "conversation";
-  tags?: TagLine[];
-  variants: { title: string; content: string; tags?: TagLine[] }[];
+export interface ProposedSetting extends ProposedEntry {
+  category?: string;
+}
+
+export interface ProposedCharacter extends ProposedEntry {
+  /** an outfit's key is its title, or `character/title` */
+  variants?: ProposedEntry[];
 }
 
 export interface ProposalPayload {

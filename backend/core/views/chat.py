@@ -109,12 +109,11 @@ def conversations(request):
             title=title, source="web", folder=folder, position=(top or 0) - 1,
             gen_settings=start,
         )
-        # The project's settings are its world -- its style, its places --
-        # and a story that starts inside the project starts with them on.
-        # Its characters are not: they come on one by one as the lead names
-        # them (library.switch_on), or as the user ticks them.
-        if folder is not None:
-            conv.selected_settings.set(library.project_settings(folder))
+        # A conversation starts with nothing from the library switched on,
+        # inside a project or not: entries come on one by one as the lead
+        # names them (library.switch_on) or as the user ticks them. It used
+        # to start with every setting of the project on, and the user asked
+        # for that to go (2026-10-17).
         return json_ok(conversation_to_dict(conv), status=201)
 
     scope = request.GET.get("scope", "active")  # active | archived | all
@@ -583,11 +582,16 @@ def message_raw(request, msg_id: uuid.UUID):
             "lead": {
                 "reply": raw.get("reply"),
                 "draw": raw.get("draw"),
+                # the entries it wrote into this conversation's library
+                "settings": raw.get("settings") or [],
+                "characters": raw.get("characters") or [],
                 "edits": raw.get("edits"),
                 "usage": raw.get("usage"),
-                # the answer before the app tidied it, and the drawing it said it continues
+                # the answer before the app tidied it
                 "raw": raw.get("raw_answer"),
-                "continues": raw.get("continues"),
+                # what the app sent back about an answer that did not hold
+                # together, and the answer it sent back
+                "checks": raw.get("checks") or [],
             },
             # the brief behind the pictures that were kept: after reflection
             # this is the last round's, not the lead's first
@@ -607,19 +611,23 @@ def message_raw(request, msg_id: uuid.UUID):
             # Tags in those prompts that the site does not have. A tag nobody
             # trained on means nothing to the model, so a word in here is the
             # likeliest reason a picture missed something that was asked for.
-            "unknown_tags": llm.unknown_tags(msg.nai_prompts, msg.prompt),
+            "unknown_tags": llm.unknown_tags(msg.nai_prompts, (msg.prompt or {}).get("assembly")
+                                             if isinstance(msg.prompt, dict) else None),
             # an empty index reports nothing; said so, or a clean list reads as a clean prompt
             "tag_index_missing": not len(danbooru.index()),
             # and what each model looked up before answering, one entry per
             # lookup. Same question as the working above, answered from the
             # other side: not "why these tags" but "what did it actually check".
             "lookups": {"lead": raw.get("lookups") or [], "draw": raw.get("draw_lookups") or []},
-            # the picture in slots: which lines each subject took from its
-            # entry, the patches this picture put on them, and what the slot
-            # check had to say. This is where "why is she not wearing the
-            # ring" is answered.
+            # the compressor's pass, when the prompt was over NovelAI's limit:
+            # the prompt it was handed, the counts before and after, its
+            # working; null on every other turn
+            "compress": raw.get("compress"),
+            # how the prompt was made: the lead's description, the exposed
+            # entries as they read, the drawing model's answer and what each
+            # entry came to. This is where "why is she not wearing the ring"
+            # is answered.
             "picture": msg.prompt,
-            "patch": raw.get("draw_patch"),
             "notes": raw.get("draw_notes") or [],
             # an answer that could not be read, kept whole. The transcript can
             # only afford a line of it, and a line is not enough to say which

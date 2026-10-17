@@ -1,4 +1,4 @@
-"""API + pipeline tests. External services (grok / novelai) are mocked."""
+"""API + pipeline tests. External services (the lead, the drawing model, novelai) are mocked."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import io
 import json
 from datetime import timedelta
 import uuid
+from typing import Any
 from unittest import mock
 
 from dataclasses import replace
@@ -29,7 +30,7 @@ from core.models import (
 from core import ui_text
 from core.prompts import wording
 from core.services import (
-    gensettings, jobs, library, llm, novelai, pipeline, prompt, providers,
+    assemble, gensettings, jobs, library, llm, novelai, pipeline, providers,
 )
 
 TEST_CREDS = {
@@ -49,45 +50,88 @@ def _png_bytes() -> bytes:
     return buf.getvalue()
 
 
-# what the LEAD model returns: a reply, and optionally a plain-language brief
-FAKE_TEXT_RESULT = {"reply": "你好，我是瓦洛东。", "draw": None, "edits": None}
+# what the LEAD model returns: a reply, the entries it wrote this turn (none
+# here), edits to the project (none), and a picture or null
+FAKE_TEXT_RESULT = {"reply": "你好，我是瓦洛东。", "settings": [], "characters": [], "edits": None, "draw": None}
 
 FAKE_IMAGE_RESULT = {
     "reply": "构图我选了俯视角。",
+    "settings": [],
+    "characters": [],
+    "edits": None,
     # no n_images: the lead model is not asked for one, and the app's count
     # (force_n_images, from 出图数量) is what _paint acts on
     "draw": {
-        "main": "一个银发少女站在花园里",
-        "scene": "白天的花园",
+        "description": "一个银发少女站在花园里",
+        "expose": [],
+        "inherits": "",
+        "text": "",
         "size": "portrait",
     },
-    "edits": None,
 }
 
-# what the DRAWING model turns that brief into
-FAKE_DRAW_RESULT = {
-    # draw_turn stamps 1 and _paint overwrites it with the app's count
-    "n_images": 1,
+#: what NovelAI is sent for that picture, as the assembler would have made it
+FAKE_NAI_PROMPTS = {
     "size": "portrait",
-    "base_prompt": "1girl, garden, best quality",
+    "base_prompt": "1girl, garden, " + novelai.QUALITY_WORDS + ", " + novelai.NO_TEXT_WORD,
     "character_prompts": [
-        {"prompt": "silver hair, blue eyes", "center_x": None, "center_y": None}
+        {"key": "小鹿", "prompt": "silver hair, blue eyes", "negative": "",
+         "center_x": None, "center_y": None}
     ],
-    "negative_prompt": "",
+    "negative_prompt": novelai.DEFAULT_NEGATIVE,
 }
+
+
+def _draw_result(nai_prompts: dict | None = None, **changes) -> dict:
+    """
+    What llm.draw returns, with the prompt changed as the test says: the
+    prompt dict (`nai_prompts`), the assembly record, the drawing model's
+    cleaned answer, what it was asked, and its working. Tests mock llm.draw
+    at this seam, so the pipeline below it -- counting, compressing,
+    painting, storing -- runs for real.
+    """
+    prompts = {**FAKE_NAI_PROMPTS, **(nai_prompts or {}), **changes}
+    return {
+        "nai_prompts": prompts,
+        "assembly": [],
+        "answer": assemble.clean_answer({"positive": "1girl, garden", "size": prompts.get("size") or "portrait"}),
+        "asked": "",
+        "reasoning": "",
+        "lookups": [],
+        "usage": {"prompt_tokens": 100},
+    }
+
+
+# what the DRAWING model's call comes back as for the brief above
+FAKE_DRAW_RESULT = _draw_result()
+
+
+def _entry(key: str, *, note: str = "", positive: str = "", negative: str = "", prose: str = "",
+           category: str | None = None, variants: list[dict] | None = None) -> dict:
+    """One entry as the lead writes it. `category` makes it a setting's;
+    `variants` a character's."""
+    out: dict = {"key": key, "note": note, "positive": positive, "negative": negative, "prose": prose}
+    if category is not None:
+        out["category"] = category
+    if variants is not None:
+        out["variants"] = variants
+    return out
 
 
 def _project(edits: dict) -> dict:
     """
-    The same edits with every entry scoped to the project.
-
-    The project is the layer the user asks for by name; an entry that says
-    nothing belongs to the conversation. These proposal tests are about the
-    project layer -- approval, the automatic modes, merging up the folder
-    chain -- so they say so, the way a model that read the prompt would.
+    The same edits addressed to the project: every top-level key carries
+    library.PROJECT_PREFIX, the way the lead names a project entry. A
+    variant's key stays plain -- it is named under its character.
     """
+    def up(e: dict) -> dict:
+        key = str(e.get("key") or "")
+        if key.startswith(library.PROJECT_PREFIX):
+            return e
+        return {**e, "key": library.PROJECT_PREFIX + key}
+
     return {
-        k: ([{**e, "scope": "project"} for e in v] if isinstance(v, list) else v)
+        k: ([up(e) for e in v] if isinstance(v, list) else v)
         for k, v in edits.items()
     }
 
@@ -128,6 +172,80 @@ class _Both:
         return False
 
 
+class _Drawn:
+    """
+    One drawn turn's seams, patched together: jobs run inline, the lead and
+    the drawing model answer with what the test says, NovelAI hands back a
+    PNG, the title stays what the test says. `lead`, `draw` and `paint` are
+    the mocks once entered. A callable, an exception or a list is a
+    side_effect; anything else is the return value.
+    """
+
+    lead: Any
+    draw: Any
+    paint: Any
+
+    def __init__(self, lead=None, draw=None, paint=None, title: str = ""):
+        self.lead_result = FAKE_IMAGE_RESULT if lead is None else lead
+        self.draw_result = FAKE_DRAW_RESULT if draw is None else draw
+        self.paint_result = (_png_bytes(), 5) if paint is None else paint
+        self.title = title
+
+    @staticmethod
+    def _kw(value) -> dict:
+        if callable(value) or isinstance(value, (list, BaseException)):
+            return {"side_effect": value}
+        return {"return_value": value}
+
+    def __enter__(self) -> "_Drawn":
+        self._sync = _sync_jobs()
+        self._sync.__enter__()
+        self._patchers = [
+            mock.patch.object(pipeline.llm, "lead_turn", **self._kw(self.lead_result)),
+            mock.patch.object(pipeline.llm, "draw", **self._kw(self.draw_result)),
+            mock.patch.object(pipeline.novelai, "generate_one", **self._kw(self.paint_result)),
+            mock.patch.object(pipeline.llm, "make_title", return_value=self.title),
+        ]
+        started = [p.start() for p in self._patchers]
+        self.lead, self.draw, self.paint = started[0], started[1], started[2]
+        return self
+
+    def __exit__(self, *exc):
+        for p in reversed(self._patchers):
+            p.stop()
+        self._sync.__exit__(*exc)
+        return False
+
+
+def _login(c: Client) -> None:
+    c.post(
+        "/api/auth/login",
+        json.dumps({"username": "tester", "password": "test-password-123"}),
+        content_type="application/json",
+    )
+
+
+def _assistant(cid) -> Message:
+    """The newest live assistant turn of a conversation."""
+    m = Message.objects.filter(conversation_id=cid, role="assistant", archived=False).order_by("-seq").first()
+    assert m is not None, "no assistant turn yet"
+    return m
+
+
+def _draw_id(m: Message) -> str:
+    return str((m.nai_prompts or {}).get("draw_id") or "")
+
+
+def _edit_of(m: Message, description: str = "加一朵云", expose: list[str] | None = None) -> dict:
+    """A lead answer that changes drawing `m`: the description written whole,
+    `inherits` naming the drawing, and only the exposure changes listed."""
+    return {
+        **FAKE_TEXT_RESULT,
+        "draw": {"description": description, "expose": expose or [], "inherits": _draw_id(m),
+                 "text": "", "size": ""},
+    }
+
+
 @override_settings(**TEST_CREDS)
 class AuthTests(TestCase):
     def login(self, c: Client, username="tester", password="test-password-123"):
@@ -163,20 +281,21 @@ class AuthTests(TestCase):
         self.assertEqual(c.get("/api/conversations").status_code, 401)
 
 
+
 @override_settings(**TEST_CREDS)
 class ChatTests(TestCase):
     def setUp(self):
         self.c = Client()
-        self.c.post(
-            "/api/auth/login",
-            json.dumps({"username": "tester", "password": "test-password-123"}),
-            content_type="application/json",
-        )
+        _login(self.c)
 
-    def _new_conv(self) -> str:
+    def _new_conv(self, folder: Folder | None = None) -> str:
+        body = {"folder_id": str(folder.id)} if folder else {}
         return self.c.post(
-            "/api/conversations", "{}", content_type="application/json"
+            "/api/conversations", json.dumps(body), content_type="application/json"
         ).json()["id"]
+
+    def _send(self, cid, text: str, **fields):
+        return self.c.post(f"/api/conversations/{cid}/messages", {"text": text, **fields})
 
     def test_conversation_crud(self):
         cid = self._new_conv()
@@ -204,13 +323,8 @@ class ChatTests(TestCase):
 
     def test_text_turn(self):
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_TEXT_RESULT
-        ), mock.patch.object(pipeline.llm, "make_title", return_value="问好"):
-            resp = self.c.post(
-                f"/api/conversations/{cid}/messages",
-                {"text": "你好", "client_msg_id": "c1"},
-            )
+        with _Drawn(lead=FAKE_TEXT_RESULT, title="问好"):
+            resp = self._send(cid, "你好", client_msg_id="c1")
         self.assertEqual(resp.status_code, 201)
         msgs = self.c.get(f"/api/conversations/{cid}/messages").json()["messages"]
         self.assertEqual(len(msgs), 2)
@@ -222,16 +336,8 @@ class ChatTests(TestCase):
 
     def test_image_turn_saves_attachments(self):
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 42)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(
-                f"/api/conversations/{cid}/messages", {"text": "画个女孩", "n_images": "2"}
-            )
+        with _Drawn(paint=(_png_bytes(), 42)):
+            self._send(cid, "画个女孩", n_images="2")
         msgs = self.c.get(f"/api/conversations/{cid}/messages").json()["messages"]
         assistant = msgs[1]
         self.assertEqual(assistant["kind"], "image")
@@ -252,24 +358,14 @@ class ChatTests(TestCase):
                 {"text": "参考这张", "images": io.BytesIO(png)},
             )
             self.assertEqual(resp.status_code, 201)
-            resp2 = self.c.post(
-                f"/api/conversations/{cid}/messages", {"text": "再来一条"}
-            )
+            resp2 = self._send(cid, "再来一条")
             self.assertEqual(resp2.status_code, 409)
 
     def test_idempotent_client_msg_id(self):
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_TEXT_RESULT
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            r1 = self.c.post(
-                f"/api/conversations/{cid}/messages",
-                {"text": "你好", "client_msg_id": "dup-1"},
-            )
-            r2 = self.c.post(
-                f"/api/conversations/{cid}/messages",
-                {"text": "你好", "client_msg_id": "dup-1"},
-            )
+        with _Drawn(lead=FAKE_TEXT_RESULT):
+            r1 = self._send(cid, "你好", client_msg_id="dup-1")
+            r2 = self._send(cid, "你好", client_msg_id="dup-1")
         self.assertEqual(r1.status_code, 201)
         self.assertEqual(r2.status_code, 200)
         self.assertEqual(
@@ -279,11 +375,11 @@ class ChatTests(TestCase):
     def test_cancel(self):
         cid = self._new_conv()
         with mock.patch.object(jobs, "start_generation"):
-            resp = self.c.post(f"/api/conversations/{cid}/messages", {"text": "hi"})
+            resp = self._send(cid, "hi")
         assistant_id = resp.json()["messages"][1]["id"]
         resp = self.c.post(f"/api/messages/{assistant_id}/cancel")
         # cancel is immediate — the row is already cancelled before the worker
-        # (which may still be blocked in grok) ever returns
+        # (which may still be blocked in the model) ever returns
         self.assertEqual(resp.json()["status"], "cancelled")
         self.assertEqual(Message.objects.get(id=assistant_id).status, "cancelled")
         # a worker that finishes afterwards must discard its result (no-op writes)
@@ -293,33 +389,20 @@ class ChatTests(TestCase):
             pipeline.run_generation(assistant_id)
         m = Message.objects.get(id=assistant_id)
         self.assertEqual(m.status, "cancelled")
-        self.assertEqual(m.content, "")  # grok's reply was discarded
+        self.assertEqual(m.content, "")  # the lead's reply was discarded
 
     def test_force_n_images_parallel(self):
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 1)
-        ) as gen, mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            # FAKE_IMAGE_RESULT asks for 2; force 4
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画", "n_images": "4"})
+        with _Drawn(paint=(_png_bytes(), 1)) as d:
+            self._send(cid, "画", n_images="4")
         msgs = self.c.get(f"/api/conversations/{cid}/messages").json()["messages"]
         self.assertEqual(len(msgs[1]["attachments"]), 4)
-        self.assertEqual(gen.call_count, 4)
+        self.assertEqual(d.paint.call_count, 4)
 
     def test_branch_copies_the_rows_and_shares_the_files(self):
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 5)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画女孩"})
+        with _Drawn():
+            self._send(cid, "画女孩")
         msgs = self.c.get(f"/api/conversations/{cid}/messages").json()["messages"]
         anchor = msgs[1]["id"]
         resp = self.c.post(f"/api/messages/{anchor}/branch")
@@ -359,14 +442,8 @@ class ChatTests(TestCase):
         columns = {f.name for f in Message._meta.get_fields()
                    if getattr(f, "concrete", False) and not f.auto_created}
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 5)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画女孩"})
+        with _Drawn():
+            self._send(cid, "画女孩")
         drawn = Message.objects.get(conversation_id=cid, role="assistant")
         Message.objects.filter(id=drawn.id).update(error="留着的说明", reflection_log=[{"round": 1}])
         drawn.refresh_from_db()
@@ -374,24 +451,18 @@ class ChatTests(TestCase):
         copy = Message.objects.get(conversation_id=resp.json()["id"], role="assistant")
         for name in columns - not_carried:
             f = Message._meta.get_field(name)
-            a, b = getattr(drawn, f.attname if isinstance(f, ForeignKey) else name),                    getattr(copy, f.attname if isinstance(f, ForeignKey) else name)
+            attr = f.attname if isinstance(f, ForeignKey) else name
+            a, b = getattr(drawn, attr), getattr(copy, attr)
             self.assertEqual(a, b, f"branch copy differs in column {name!r}")
 
     def test_a_branch_from_the_end_takes_the_library_as_it_stands_now(self):
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 5)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画女孩"})
+        with _Drawn():
+            self._send(cid, "画女孩")
         drawn = Message.objects.get(conversation_id=cid, role="assistant")
-        # after the turn: the user adds an entry and edits its text, lines not yet rewritten
+        # after the turn: the user adds an entry and edits its note, tags not yet rewritten
         r = self.c.post(f"/api/conversations/{cid}/settings",
-                        json.dumps({"title": "黄昏", "content": "傍晚",
-                                    "tags": [{"part": "天色", "tags": "sunset"}]}),
+                        json.dumps({"title": "黄昏", "content": "傍晚", "positive": "sunset"}),
                         content_type="application/json")
         self.assertEqual(r.status_code, 201, r.content[:200])
         made = Setting.objects.get(title="黄昏", conversation_id=cid)
@@ -401,21 +472,14 @@ class ChatTests(TestCase):
         self.assertEqual(resp.status_code, 201)
         branch = Setting.objects.get(title="黄昏", conversation_id=resp.json()["id"])
         self.assertEqual(branch.content, "深夜")
-        # still waiting for its lines in the branch, as it was in the source
-        behind = branch.lines_ai_at is None or (branch.text_edited_at is not None
-                                                and branch.lines_ai_at < branch.text_edited_at)
-        self.assertTrue(behind)
+        self.assertEqual(branch.positive, ["sunset"])
+        # still waiting for the patrol in the branch, as it was in the source
+        self.assertTrue(branch.lines_stale)
 
     def test_the_lead_sees_the_main_picture_first(self):
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 5)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画女孩", "n_images": "3"})
+        with _Drawn():
+            self._send(cid, "画女孩", n_images="3")
         drawn = Message.objects.get(conversation_id=cid, role="assistant")
         Message.objects.filter(id=drawn.id).update(main_index=2)
         conv = Conversation.objects.get(id=cid)
@@ -435,14 +499,8 @@ class ChatTests(TestCase):
             if calls["n"] == 1:
                 raise pipeline.novelai.NovelAIError("novelai timed out")
             return _png_bytes(), 5
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline, "_generate_in_thread", side_effect=flaky
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画女孩", "n_images": "2"})
+        with _Drawn(), mock.patch.object(pipeline, "_generate_in_thread", side_effect=flaky):
+            self._send(cid, "画女孩", n_images="2")
         drawn = Message.objects.get(conversation_id=cid, role="assistant")
         self.assertEqual(drawn.status, "done")
         self.assertEqual(drawn.attachments.filter(kind="generated").count(), 1)
@@ -454,12 +512,12 @@ class ChatTests(TestCase):
     def test_one_switch_at_a_time(self):
         cid = self._new_conv()
         r = self.c.post(f"/api/conversations/{cid}/settings",
-                        json.dumps({"title": "黄昏", "tags": [{"part": "天色", "tags": "sunset"}]}),
+                        json.dumps({"title": "黄昏", "positive": "sunset"}),
                         content_type="application/json")
         self.assertEqual(r.status_code, 201, r.content[:200])
         sid = Setting.objects.get(title="黄昏").id
         r2 = self.c.post(f"/api/conversations/{cid}/settings",
-                         json.dumps({"title": "雨夜", "tags": [{"part": "天气", "tags": "rain"}]}),
+                         json.dumps({"title": "雨夜", "positive": "rain"}),
                          content_type="application/json")
         self.assertEqual(r2.status_code, 201, r2.content[:200])
         rid = Setting.objects.get(title="雨夜").id
@@ -480,14 +538,8 @@ class ChatTests(TestCase):
         data = _png_bytes()
         upload.size_bytes = len(data)
         upload.file.save("ref.png", ContentFile(data), save=True)
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 5)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{conv.id}/messages", {"text": "照这张画"})
+        with _Drawn():
+            self._send(conv.id, "照这张画")
         turn = Message.objects.filter(conversation=conv, role="assistant").order_by("-seq").first()
         assert turn is not None
         self.assertEqual((turn.model_raw or {}).get("references_sent"), [str(upload.id)])
@@ -496,23 +548,23 @@ class ChatTests(TestCase):
         self.assertIn(str(upload.id), raw["references"][0]["url"])
 
     def test_the_inspector_shows_the_leads_answer_before_the_app_tidied_it(self):
-        answer = {"reply": "好", "draw": {"main": "一个女孩", "subjects": [{"look": "红发"}]}, "edits": None}
+        answer = {
+            "reply": "好", "settings": [], "characters": [], "edits": None,
+            "draw": {"description": "一个女孩", "expose": ["林晚", ""], "inherits": "", "text": "", "size": "huge"},
+        }
         with mock.patch.object(llm, "_ask", return_value=(answer, {})):
             out = llm.lead_turn([{"role": "user", "content": "画"}])
         self.assertEqual(out["raw_answer"], answer)
-        # the tidied draw dropped the nameless subject; the raw one still has it
-        self.assertEqual(out["raw_answer"]["draw"]["subjects"], [{"look": "红发"}])
+        # the tidied draw dropped the empty key and the size that is not one;
+        # the raw one still has them
+        self.assertEqual(out["draw"], {"description": "一个女孩", "expose": ["林晚"], "inherits": "",
+                                       "text": "", "size": ""})
+        self.assertEqual(out["raw_answer"]["draw"]["size"], "huge")
 
     def test_a_stop_that_kept_pictures_says_so_on_a_finished_turn(self):
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 5)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画女孩"})
+        with _Drawn():
+            self._send(cid, "画女孩")
         turn = Message.objects.get(conversation_id=cid, role="assistant")
         Message.objects.filter(id=turn.id).update(status="cancelled")
         turn.refresh_from_db()
@@ -522,14 +574,15 @@ class ChatTests(TestCase):
         self.assertEqual(turn.error, ui_text.STOPPED_KEPT_PICTURES)
         shown = self.c.get(f"/api/conversations/{cid}/messages").json()["messages"][-1]
         self.assertEqual(shown["error"], ui_text.STOPPED_KEPT_PICTURES)
+        # nothing was exposed, so nothing was used
         self.assertEqual(shown["used_entries"], [])
 
     def test_moving_a_conversation_by_drag_prunes_the_old_projects_selection(self):
         a = Folder.objects.create(name="甲")
         b = Folder.objects.create(name="乙")
         conv = Conversation.objects.create(title="t", folder=a)
-        old = Setting.objects.create(folder=a, title="甲的画风", tags=[{"id": "s1", "part": "画风", "tags": "painterly"}])
-        new = Setting.objects.create(folder=b, title="乙的画风", tags=[{"id": "s1", "part": "画风", "tags": "sketch"}])
+        old = Setting.objects.create(folder=a, title="甲的画风", positive=["painterly"])
+        new = Setting.objects.create(folder=b, title="乙的画风", positive=["sketch"])
         conv.selected_settings.add(old)
         r = self.c.post("/api/projects/move", json.dumps({"kind": "conversation", "id": str(conv.id),
                                                           "parent_id": str(b.id), "index": 0}),
@@ -537,20 +590,16 @@ class ChatTests(TestCase):
         self.assertEqual(r.status_code, 200, r.content[:200])
         on = set(conv.selected_settings.values_list("id", flat=True))
         self.assertNotIn(old.id, on)
-        self.assertIn(new.id, on)
+        # the new project's entries are there to be ticked, not ticked already
+        self.assertNotIn(new.id, on)
 
     def test_a_branch_carries_the_proposal_cards_of_the_turns_it_copies(self):
-        cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value={**FAKE_IMAGE_RESULT, "edits": _project({
-                "settings": [{"title": "黄昏", "scope": "conversation",
-                              "tags": [{"part": "天色", "tags": "sunset"}]}], "characters": []})}
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 5)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "记下黄昏"})
+        folder = Folder.objects.create(name="项目")
+        cid = self._new_conv(folder)
+        lead = {**FAKE_IMAGE_RESULT, "edits": _project({
+            "settings": [_entry("黄昏", note="傍晚", positive="sunset", category="光")], "characters": []})}
+        with _Drawn(lead=lead):
+            self._send(cid, "记下黄昏")
         drawn = Message.objects.get(conversation_id=cid, role="assistant")
         self.assertEqual(LibraryProposal.objects.filter(conversation_id=cid).count(), 1)
         resp = self.c.post(f"/api/messages/{drawn.id}/branch")
@@ -559,138 +608,120 @@ class ChatTests(TestCase):
         card = cards.first()
         assert card is not None
         self.assertEqual(str(card.message.conversation_id), new_cid)
+        self.assertEqual(card.payload["settings"][0]["key"], library.PROJECT_PREFIX + "黄昏")
 
-    def test_a_branch_carries_the_picture_and_the_main_index_so_it_can_be_edited(self):
+    def _first_drawing(self, cid, *, n_images: str = "1", paint=None) -> Message:
+        """A first picture that writes a conversation entry and exposes it,
+        so a later picture has something to inherit."""
+        lead = {**FAKE_IMAGE_RESULT,
+                "settings": [_entry("黄昏", note="傍晚的光", positive="sunset, warm lighting", category="光")],
+                "draw": {**FAKE_IMAGE_RESULT["draw"], "expose": ["黄昏"]}}
+        with _Drawn(lead=lead, paint=paint):
+            self._send(cid, "画女孩", n_images=n_images)
+        return _assistant(cid)
+
+    def test_a_branch_carries_the_picture_and_the_main_index_so_an_edit_in_it_inherits_them(self):
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 5)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画女孩", "n_images": "2"})
-        drawn = Message.objects.get(conversation_id=cid, role="assistant")
-        self.assertIsInstance(drawn.prompt, dict)
+        seeds = iter([11, 12])
+        drawn = self._first_drawing(cid, n_images="2", paint=lambda *a, **k: (_png_bytes(), next(seeds)))
+        assert isinstance(drawn.prompt, dict)
+        self.assertEqual(drawn.prompt["exposed_keys"], ["黄昏"])
         Message.objects.filter(id=drawn.id).update(main_index=1)
         resp = self.c.post(f"/api/messages/{drawn.id}/branch")
         self.assertEqual(resp.status_code, 201)
         copy = Message.objects.get(conversation_id=resp.json()["id"], role="assistant")
-        # the slot table and the chosen picture travel with the drawing: they
-        # are what the next edit in the branch changes and follows
+        # what the picture was made from and which picture the user chose
+        # travel with the drawing: they are what the next edit in the branch
+        # inherits and follows
         self.assertEqual(copy.prompt, drawn.prompt)
         self.assertEqual(copy.main_index, 1)
-        self.assertEqual((copy.nai_prompts or {}).get("draw_id"), (drawn.nai_prompts or {}).get("draw_id"))
+        self.assertEqual(_draw_id(copy), _draw_id(drawn))
+        # and the conversation's own entry came along, so the key still resolves
+        self.assertTrue(Setting.objects.filter(conversation_id=copy.conversation_id, title="黄昏").exists())
 
-        # an edit in the branch is an edit of the copied picture, not a fresh draw
-        edit_result = {**FAKE_IMAGE_RESULT,
-                       "draw": {**FAKE_IMAGE_RESULT["draw"], "change": "把眼镜摘掉",
-                                "continues": (drawn.nai_prompts or {}).get("draw_id")}}
         seen: dict = {}
 
-        def fake_edit(picture, brief, *args, **kwargs):
-            seen["picture"] = picture
-            return FAKE_DRAW_RESULT
+        def fake_draw(description, exposed, **kw):
+            seen["exposed"] = exposed
+            return _draw_result(base_prompt="1girl, garden, no glasses")
 
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=edit_result
-        ), mock.patch.object(
-            pipeline.llm, "draw_edit", side_effect=fake_edit
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", side_effect=AssertionError("an edit must not draw fresh")
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 5)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{copy.conversation_id}/messages", {"text": "把眼镜摘掉"})
-        self.assertEqual(seen.get("picture"), drawn.prompt)
+        def paint(*a, **kw):
+            seen["seed"] = kw.get("seed")
+            return _png_bytes(), 99
+
+        with _Drawn(lead=_edit_of(copy, "把眼镜摘掉"), draw=fake_draw, paint=paint):
+            self._send(copy.conversation_id, "把眼镜摘掉")
+        self.assertEqual(_assistant(copy.conversation_id).status, "done")
+        # the edit reads the copied picture's entries, from the branch's own layer
+        self.assertEqual([(e["key"], e["layer"]) for e in seen["exposed"]], [("黄昏", "conversation")])
+        # and follows the seed of the picture the user chose as main, not the first
+        main = copy.attachments.get(kind="generated", position=1)
+        other = copy.attachments.get(kind="generated", position=0)
+        self.assertNotEqual(main.seed, other.seed)
+        self.assertEqual(seen["seed"], main.seed)
 
     def test_an_edit_that_sends_the_same_words_again_is_a_bad_answer(self):
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 5)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画女孩"})
-        drawn = Message.objects.get(conversation_id=cid, role="assistant")
-        edit_result = {**FAKE_IMAGE_RESULT,
-                       "draw": {**FAKE_IMAGE_RESULT["draw"], "change": "加一朵云",
-                                "continues": (drawn.nai_prompts or {}).get("draw_id")}}
+        drawn = self._first_drawing(cid)
         paints: list = []
         # the drawing model answers the edit with the very words it sent before
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=edit_result
-        ), mock.patch.object(
-            pipeline.llm, "draw_edit", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", side_effect=lambda *a, **k: paints.append(1) or (_png_bytes(), 5)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "加一朵云"})
-        failed = Message.objects.filter(conversation_id=cid, role="assistant").order_by("-seq").first()
-        assert failed is not None
+        with _Drawn(lead=_edit_of(drawn), draw=FAKE_DRAW_RESULT,
+                    paint=lambda *a, **k: paints.append(1) or (_png_bytes(), 5)):
+            self._send(cid, "加一朵云")
+        failed = _assistant(cid)
         self.assertEqual(failed.status, "error")
-        self.assertIn("没有改出任何东西", failed.error)
+        self.assertIn(ui_text.EDIT_CHANGED_NOTHING, failed.error)
         self.assertEqual(paints, [], "the same prompt must not be painted again")
-        # a line the lead rewrote changes the words with no patch at all: that is an edit
-        changed = {**FAKE_DRAW_RESULT, "character_prompts": [{"prompt": "silver hair, blue eyes, red cardigan"}]}
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=edit_result
-        ), mock.patch.object(
-            pipeline.llm, "draw_edit", return_value=changed
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 5)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "开衫换成红色"})
-        last = Message.objects.filter(conversation_id=cid, role="assistant").order_by("-seq").first()
-        assert last is not None
-        self.assertEqual(last.status, "done")
+        # a word changed anywhere is an edit
+        changed = _draw_result(base_prompt=FAKE_NAI_PROMPTS["base_prompt"] + ", cloud")
+        with _Drawn(lead=_edit_of(drawn), draw=changed):
+            self._send(cid, "加一朵云")
+        self.assertEqual(_assistant(cid).status, "done")
 
-    def test_a_paint_that_fails_leaves_the_row_without_that_attempts_prompt(self):
+    def test_a_paint_that_fails_keeps_the_drawing_models_work_but_is_not_a_drawing_to_inherit(self):
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", side_effect=pipeline.novelai.NovelAIError("novelai timed out")
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画女孩"})
-        turn = Message.objects.get(conversation_id=cid, role="assistant")
+        turn = self._first_drawing(cid, paint=pipeline.novelai.NovelAIError("novelai timed out"))
         self.assertEqual(turn.status, "error")
-        # no picture was painted, so no slot table claims to be behind one
-        # (the count-settled nai_prompts may stay: 重绘 can replay a failed paint)
-        self.assertIsNone(turn.prompt)
+        self.assertFalse(turn.attachments.filter(kind="generated").exists())
+        # the drawing model's work is this turn's whatever happened to the
+        # canvas: the inspector can still say what the prompt was made from
+        assert isinstance(turn.prompt, dict)
+        self.assertEqual(turn.prompt["exposed_keys"], ["黄昏"])
+        self.assertTrue(_draw_id(turn))
+        # but a failed turn with nothing to show is not a turn: nothing can
+        # continue it, and a picture that names it is drawn new
+        conv = Conversation.objects.get(id=cid)
+        self.assertIsNone(pipeline.drawing_message(conv, _draw_id(turn), turn.seq + 1))
+        self.assertIsNone(pipeline.latest_drawing(conv, turn.seq + 1))
 
-    def test_an_edit_of_a_drawing_without_a_slot_table_fails_instead_of_drawing_fresh(self):
+    def test_a_drawing_from_before_exposures_were_stored_is_followed_not_continued(self):
+        """An old picture has no exposure list: `inherits` naming it draws a
+        new picture, and the seed still follows that picture's main one."""
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 5)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画女孩"})
-        drawn = Message.objects.get(conversation_id=cid, role="assistant")
-        # a row from before pictures had slots
+        with _Drawn(paint=(_png_bytes(), 77)):
+            self._send(cid, "画女孩")
+        drawn = _assistant(cid)
         Message.objects.filter(id=drawn.id).update(prompt=None)
-        edit_result = {**FAKE_IMAGE_RESULT,
-                       "draw": {**FAKE_IMAGE_RESULT["draw"], "change": "加一朵云",
-                                "continues": (drawn.nai_prompts or {}).get("draw_id")}}
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=edit_result
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", side_effect=AssertionError("must not draw a cloud and nothing else")
-        ), mock.patch.object(
-            pipeline.llm, "draw_edit", side_effect=AssertionError("there is no picture to edit")
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "加一朵云"})
-        failed = Message.objects.filter(conversation_id=cid, role="assistant").order_by("-seq").first()
-        assert failed is not None
-        self.assertEqual(failed.status, "error")
-        self.assertIn("没有可改的表征表", failed.error)
+        seen: dict = {}
+
+        def fake_draw(description, exposed, **kw):
+            seen["exposed"] = exposed
+            seen["description"] = description
+            return FAKE_DRAW_RESULT
+
+        def paint(*a, **kw):
+            seen["seed"] = kw.get("seed")
+            return _png_bytes(), 5
+
+        with _Drawn(lead=_edit_of(drawn), draw=fake_draw, paint=paint):
+            self._send(cid, "加一朵云")
+        last = _assistant(cid)
+        # drawn new: nothing inherited, and the same words are not a failure
+        # because there is no earlier picture to compare them with
+        self.assertEqual(last.status, "done", last.error)
+        self.assertEqual(seen["exposed"], [])
+        self.assertEqual(seen["description"], "加一朵云")
+        self.assertEqual(seen["seed"], 77)
 
     def test_a_shared_picture_survives_the_other_conversation_dropping_it(self):
         """
@@ -750,14 +781,8 @@ class ChatTests(TestCase):
 
     def test_redraw(self):
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 7)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画"})
+        with _Drawn(paint=(_png_bytes(), 7)):
+            self._send(cid, "画")
             msgs = self.c.get(f"/api/conversations/{cid}/messages").json()["messages"]
             resp = self.c.post(
                 f"/api/messages/{msgs[1]['id']}/redraw",
@@ -780,16 +805,10 @@ class ChatTests(TestCase):
         an hour ago at the end of the conversation wearing that label.
         """
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 7)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画第一张"})
+        with _Drawn(paint=(_png_bytes(), 7)):
+            self._send(cid, "画第一张")
             first = self.c.get(f"/api/conversations/{cid}/messages").json()["messages"][1]
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "再画一张"})
+            self._send(cid, "再画一张")
             msgs = self.c.get(f"/api/conversations/{cid}/messages").json()["messages"]
             newest = msgs[-1]
             # now redraw the OLDER of the two picture turns
@@ -804,14 +823,8 @@ class ChatTests(TestCase):
     def test_a_redraw_does_not_claim_a_continuous_round(self):
         """It belongs to no run — and now it is not even a new row to adopt."""
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 7)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画"})
+        with _Drawn(paint=(_png_bytes(), 7)):
+            self._send(cid, "画")
             row = self.c.get(f"/api/conversations/{cid}/messages").json()["messages"][1]
             self.c.post(f"/api/messages/{row['id']}/redraw")
         self.assertFalse(
@@ -828,14 +841,8 @@ class ChatTests(TestCase):
         picture of nothing, paid for.
         """
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 7)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "画"})
+        with _Drawn(paint=(_png_bytes(), 7)):
+            self._send(cid, "画")
         msgs = self.c.get(f"/api/conversations/{cid}/messages").json()["messages"]
         row = Message.objects.get(id=msgs[1]["id"])
         hollow = dict(row.nai_prompts or {})
@@ -849,10 +856,8 @@ class ChatTests(TestCase):
 
     def test_rerun_archives_old_assistant(self):
         cid = self._new_conv()
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_TEXT_RESULT
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{cid}/messages", {"text": "你好"})
+        with _Drawn(lead=FAKE_TEXT_RESULT):
+            self._send(cid, "你好")
             resp = self.c.post(f"/api/conversations/{cid}/rerun")
         self.assertEqual(resp.status_code, 201)
         active = self.c.get(f"/api/conversations/{cid}/messages").json()["messages"]
@@ -870,11 +875,8 @@ class ChatTests(TestCase):
         """
         cid = self._new_conv()
         with mock.patch.object(jobs, "start_generation"):
-            resp = self.c.post(f"/api/conversations/{cid}/messages", {"text": "hi"})
+            resp = self._send(cid, "hi")
         assistant_id = resp.json()["messages"][1]["id"]
-        from datetime import timedelta
-
-        from django.utils import timezone
 
         Message.objects.filter(id=assistant_id).update(
             heartbeat_at=timezone.now() - timedelta(seconds=9999)
@@ -953,23 +955,13 @@ class ReviewRegressionTests(TestCase):
 
     def setUp(self):
         self.c = Client()
-        self.c.post(
-            "/api/auth/login",
-            json.dumps({"username": "tester", "password": "test-password-123"}),
-            content_type="application/json",
-        )
+        _login(self.c)
 
     def test_forced_count_is_persisted_so_ui_and_redraw_agree(self):
         cid = self.c.post(
             "/api/conversations", "{}", content_type="application/json"
         ).json()["id"]
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 1)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
+        with _Drawn(paint=(_png_bytes(), 1)):
             self.c.post(
                 f"/api/conversations/{cid}/messages", {"text": "画", "n_images": "4"}
             )
@@ -996,7 +988,7 @@ class ReviewRegressionTests(TestCase):
         )
         msg = Message.objects.create(
             conversation=conv, seq=2, role="assistant", status="pending",
-            kind="image", nai_prompts={**FAKE_DRAW_RESULT, "n_images": 1},
+            kind="image", nai_prompts={**FAKE_NAI_PROMPTS, "n_images": 1},
             heartbeat_at=timezone.now(),
         )
 
@@ -1491,15 +1483,9 @@ class InternalApiTests(TestCase):
 
     def test_internal_chat(self):
         c = Client()
-        # MCP now runs the conversation's own reflection setting (one round by
-        # default), which would call a real provider here
-        with mock.patch.object(pipeline, "_reflection_rounds", return_value=0), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 5)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
+        # MCP runs the conversation's own reflection setting (one round by
+        # default), which would call a real provider here; _Drawn turns it off
+        with _Drawn():
             resp = c.post(
                 "/api/internal/chat",
                 json.dumps({"message": "画一个女孩", "n_images": 2}),
@@ -1677,18 +1663,41 @@ class ProjectTests(TestCase):
             Conversation.objects.get(id=conv["id"]).selected_settings.count(), 0
         )
 
+    def test_a_conversation_starts_with_nothing_switched_on_even_inside_a_project(self):
+        """A project's entries are there to be ticked, not ticked already:
+        a new conversation in the project, and one moved into it, begin with
+        an empty selection (the user's rule, 2026-10-17)."""
+        f = self._folder("F")
+        self.c.post(
+            f"/api/folders/{f['id']}/settings",
+            json.dumps({"title": "设定", "content": "x"}),
+            content_type="application/json",
+        )
+        started_inside = self.c.post(
+            "/api/conversations",
+            json.dumps({"title": "新对话", "folder_id": f["id"]}),
+            content_type="application/json",
+        ).json()
+        self.assertEqual(Conversation.objects.get(id=started_inside["id"]).selected_settings.count(), 0)
+        moved_in = self._conv()
+        self.c.post(
+            f"/api/conversations/{moved_in['id']}/folder",
+            json.dumps({"folder_id": f["id"]}),
+            content_type="application/json",
+        )
+        self.assertEqual(Conversation.objects.get(id=moved_in["id"]).selected_settings.count(), 0)
+
 
 @override_settings(**TEST_CREDS)
 class TwoModelWorkflowTests(TestCase):
-    """The lead model briefs; the drawing model writes tags; edits need consent."""
+    """
+    The lead model describes and exposes; the drawing model reads only what
+    was exposed; edits to the project need consent.
+    """
 
     def setUp(self):
         self.c = Client()
-        self.c.post(
-            "/api/auth/login",
-            json.dumps({"username": "tester", "password": "test-password-123"}),
-            content_type="application/json",
-        )
+        _login(self.c)
         self.folder = self.c.post(
             "/api/folders", json.dumps({"name": "项目"}), content_type="application/json"
         ).json()
@@ -1701,45 +1710,47 @@ class TwoModelWorkflowTests(TestCase):
             content_type="application/json",
         )
 
-    def _send(self, lead_result, text="画一张"):
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=lead_result
-        ) as lead, mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ) as draw, mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 1)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
-            self.c.post(f"/api/conversations/{self.conv['id']}/messages", {"text": text, "reflection_rounds": "0"})
-        return lead, draw
+    def _send(self, lead_result, text="画一张", draw=None):
+        with _Drawn(lead=lead_result, draw=draw, paint=(_png_bytes(), 1)) as d:
+            self.c.post(f"/api/conversations/{self.conv['id']}/messages",
+                        {"text": text, "reflection_rounds": "0"})
+        return d.lead, d.draw
 
     def _proposals(self):
         return self.c.get(
             f"/api/conversations/{self.conv['id']}/proposals"
         ).json()["proposals"]
 
-    def test_brief_goes_to_the_drawing_model_not_to_novelai(self):
-        _lead, draw = self._send(FAKE_IMAGE_RESULT)
-        self.assertTrue(draw.called)
-        brief = draw.call_args[0][0]
-        self.assertEqual(brief["main"], "一个银发少女站在花园里")
-        msg = Message.objects.get(conversation_id=self.conv["id"], role="assistant")
-        # the transcript keeps both halves: the intent and the resulting tags
-        assert msg.draw_brief is not None
-        self.assertEqual(msg.draw_brief["main"], "一个银发少女站在花园里")
-        assert msg.nai_prompts is not None
-        self.assertEqual(msg.nai_prompts["base_prompt"], "1girl, garden, best quality")
-
-    def test_no_brief_means_no_drawing_call(self):
-        _lead, draw = self._send(FAKE_TEXT_RESULT, text="你好")
-        self.assertFalse(draw.called)
-
-    def test_selection_reaches_both_models(self):
-        char = self.c.post(
+    def _character(self):
+        """A project character with one costume, as the user makes one."""
+        return self.c.post(
             f"/api/folders/{self.folder['id']}/characters",
             json.dumps({"name": "小鹿", "description": "银发少女",
                         "variant_title": "常服", "variant_content": "白色连衣裙"}),
             content_type="application/json",
         ).json()
+
+    def test_the_description_goes_to_the_drawing_model_not_to_novelai(self):
+        _lead, draw = self._send(FAKE_IMAGE_RESULT)
+        self.assertTrue(draw.called)
+        self.assertEqual(draw.call_args[0][0], "一个银发少女站在花园里")
+        msg = Message.objects.get(conversation_id=self.conv["id"], role="assistant")
+        # the transcript keeps both halves: the intent and the resulting tags
+        assert msg.draw_brief is not None
+        self.assertEqual(msg.draw_brief["description"], "一个银发少女站在花园里")
+        assert msg.nai_prompts is not None
+        self.assertEqual(msg.nai_prompts["base_prompt"], FAKE_NAI_PROMPTS["base_prompt"])
+        # and the drawing model was told nothing about the conversation
+        self.assertEqual(draw.call_args[0][1], [])
+        self.assertEqual(draw.call_args.kwargs["text"], "")
+        self.assertEqual(draw.call_args.kwargs["size"], "portrait")
+
+    def test_no_picture_means_no_drawing_call(self):
+        _lead, draw = self._send(FAKE_TEXT_RESULT, text="你好")
+        self.assertFalse(draw.called)
+
+    def test_the_lead_reads_the_selection_and_the_drawing_model_only_what_is_exposed(self):
+        char = self._character()
         self.c.post(
             f"/api/conversations/{self.conv['id']}/selection",
             json.dumps({"setting_ids": [],
@@ -1748,26 +1759,65 @@ class TwoModelWorkflowTests(TestCase):
         )
         lead, draw = self._send(FAKE_IMAGE_RESULT)
 
-        # the lead model sees it appended to the user's turn
+        # the lead model sees it appended to the user's turn, under the key it
+        # must write to name it
         joined = json.dumps(lead.call_args[0][0], ensure_ascii=False)
-        self.assertIn("小鹿", joined)
+        self.assertIn("◆ " + library.PROJECT_PREFIX + "小鹿", joined)
         self.assertIn("白色连衣裙", joined)
-        # and the drawing model, which has nothing else to go on, gets it too —
-        # as prose, since this entry has no tag lines yet
-        self.assertIn("白色连衣裙", draw.call_args[0][1])
-        # the turn records what was selected, so the image can say so later
+        # the drawing model does not: a selection is the lead's to read, and
+        # this picture exposed nothing
+        self.assertEqual(draw.call_args[0][1], [])
+        msg = Message.objects.get(conversation_id=self.conv["id"], role="assistant")
+        self.assertIsNone(msg.selection_snapshot)
+        assert isinstance(msg.prompt, dict)
+        self.assertEqual(msg.prompt["exposed_keys"], [])
+
+    def test_an_exposed_entry_reaches_the_drawing_model_in_full(self):
+        char = self._character()
+        # the person switches her on: only then is she the lead's to draw
+        Conversation.objects.get(id=self.conv["id"]).selected_variants.add(uuid.UUID(char["variants"][0]["id"]))
+        result = {**FAKE_IMAGE_RESULT,
+                  "draw": {**FAKE_IMAGE_RESULT["draw"], "expose": [library.PROJECT_PREFIX + "小鹿/常服"]}}
+        _lead, draw = self._send(result)
+        exposed = draw.call_args[0][1]
+        # the costume brings its character, placed before it
+        self.assertEqual([e["key"] for e in exposed], ["小鹿", "小鹿/常服"])
+        self.assertEqual([e["kind"] for e in exposed], ["character", "variant"])
+        self.assertEqual(exposed[0]["note"], "银发少女")
+        self.assertEqual(exposed[1]["note"], "白色连衣裙")
+        self.assertEqual(exposed[1]["layer"], "project")
+        # the turn records what it was drawn from, so the picture can say so later
         msg = Message.objects.get(conversation_id=self.conv["id"], role="assistant")
         assert msg.selection_snapshot is not None
-        self.assertEqual(msg.selection_snapshot["characters"][0]["name"], "小鹿")
+        self.assertEqual(msg.selection_snapshot["keys"], ["@小鹿", "@小鹿/常服"])
+        self.assertEqual(msg.selection_snapshot["entries"][1]["note"], "白色连衣裙")
+        assert isinstance(msg.prompt, dict)
+        self.assertEqual(msg.prompt["exposed_keys"], ["@小鹿", "@小鹿/常服"])
+
+    def test_a_project_entry_that_is_not_switched_on_is_not_drawn_from(self):
+        """What the person has not switched on, the lead does not see: naming
+        it finds nothing, the answer goes back once, and the selection is
+        left as the person set it."""
+        char = self._character()
+        result = {**FAKE_IMAGE_RESULT,
+                  "draw": {**FAKE_IMAGE_RESULT["draw"], "expose": [library.PROJECT_PREFIX + "小鹿/常服"]}}
+        lead, draw = self._send(result)
+        exposed = draw.call_args[0][1]
+        self.assertNotIn("小鹿", [e["key"] for e in exposed])
+        self.assertTrue(any("小鹿" in str(c.args) or "小鹿" in str(c.kwargs) for c in lead.call_args_list[1:])
+                        or lead.call_count >= 1)
+        conv = Conversation.objects.get(id=self.conv["id"])
+        self.assertFalse(conv.selected_variants.filter(id=uuid.UUID(char["variants"][0]["id"])).exists())
+        self.assertNotIn("小鹿", library.as_prompt_text(library.selection_for(conv)))
 
     def test_edits_are_only_proposed_never_written(self):
         result = {
             **FAKE_TEXT_RESULT,
             "edits": _project({
-                "settings": [{"title": "夜景", "content": "冷色调，霓虹"}],
+                "settings": [_entry("夜景", note="冷色调，霓虹", positive="neon lights, cold colors", category="光")],
                 "characters": [
-                    {"name": "小鹿", "description": "银发",
-                     "variants": [{"title": "泳装", "content": "蓝色比基尼"}]}
+                    _entry("小鹿", note="银发", positive="silver hair",
+                           variants=[_entry("泳装", note="蓝色比基尼", positive="blue bikini")])
                 ],
             }),
         }
@@ -1780,29 +1830,33 @@ class TwoModelWorkflowTests(TestCase):
         self.assertEqual(len(proposals), 1)
         self.assertEqual(proposals[0]["status"], "pending")
 
-        # the user agrees → now it lands
+        # the user agrees → now it lands, tags and all
         resp = self.c.post(
             f"/api/proposals/{proposals[0]['id']}/resolve",
             json.dumps({"approve": True}),
             content_type="application/json",
         ).json()
         self.assertEqual(resp["status"], "applied")
-        self.assertEqual(Setting.objects.get(title="夜景").content, "冷色调，霓虹")
-        self.assertEqual(
-            CharacterVariant.objects.get(title="泳装").content, "蓝色比基尼"
-        )
+        night = Setting.objects.get(title="夜景")
+        self.assertEqual(night.content, "冷色调，霓虹")
+        self.assertEqual(night.positive, ["neon lights", "cold colors"])
+        self.assertEqual(night.category, "光")
+        self.assertEqual(night.folder_id, uuid.UUID(self.folder["id"]))
+        swim = CharacterVariant.objects.get(title="泳装")
+        self.assertEqual(swim.content, "蓝色比基尼")
+        self.assertEqual(swim.positive, ["blue bikini"])
 
     def test_a_pending_proposal_survives_the_next_message(self):
         result = {
             **FAKE_TEXT_RESULT,
-            "edits": _project({"settings": [{"title": "夜景", "content": "x"}], "characters": []}),
+            "edits": _project({"settings": [_entry("夜景", note="x", category="")], "characters": []}),
         }
         self._send(result, text="记一下")
         self._send(FAKE_TEXT_RESULT, text="先聊点别的")
         pending = [p for p in self._proposals() if p["status"] == "pending"]
         self.assertEqual(len(pending), 1)   # still there, still approvable
 
-    def test_proposal_edits_existing_entries_by_title(self):
+    def test_proposal_edits_existing_entries_by_key(self):
         self.c.post(
             f"/api/folders/{self.folder['id']}/settings",
             json.dumps({"title": "夜景", "content": "旧内容"}),
@@ -1810,7 +1864,7 @@ class TwoModelWorkflowTests(TestCase):
         )
         result = {
             **FAKE_TEXT_RESULT,
-            "edits": _project({"settings": [{"title": "夜景", "content": "新内容"}],
+            "edits": _project({"settings": [_entry("夜景", note="新内容", positive="neon", category="")],
                                "characters": []}),
         }
         self._send(result, text="改一下夜景")
@@ -1821,12 +1875,14 @@ class TwoModelWorkflowTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(Setting.objects.count(), 1)          # edited, not duplicated
-        self.assertEqual(Setting.objects.get(title="夜景").content, "新内容")
+        night = Setting.objects.get(title="夜景")
+        self.assertEqual(night.content, "新内容")
+        self.assertEqual(night.positive, ["neon"])
 
     def test_rejecting_a_proposal_writes_nothing(self):
         result = {
             **FAKE_TEXT_RESULT,
-            "edits": _project({"settings": [{"title": "夜景", "content": "x"}], "characters": []}),
+            "edits": _project({"settings": [_entry("夜景", note="x", category="")], "characters": []}),
         }
         self._send(result, text="记一下")
         pid = self._proposals()[0]["id"]
@@ -1837,6 +1893,58 @@ class TwoModelWorkflowTests(TestCase):
         ).json()
         self.assertEqual(resp["status"], "rejected")
         self.assertEqual(Setting.objects.count(), 0)
+
+    def test_an_edited_project_entry_is_exposed_in_its_edited_form_before_approval(self):
+        """The edit comes before the exposure: this turn draws from the entry
+        as the lead rewrote it, whether or not the user ever approves."""
+        style = Setting.objects.create(folder_id=uuid.UUID(self.folder["id"]), title="画风", content="厚涂",
+                                       positive=["oil painting (medium)"], category="画风", position=1)
+        Conversation.objects.get(id=self.conv["id"]).selected_settings.add(style)   # the person switched it on
+        result = {
+            **FAKE_IMAGE_RESULT,
+            "edits": _project({"settings": [_entry("画风", note="厚涂，冷色",
+                                                     positive="oil painting (medium), cold colors", category="画风")],
+                               "characters": []}),
+            "draw": {**FAKE_IMAGE_RESULT["draw"], "expose": [library.PROJECT_PREFIX + "画风"]},
+        }
+        _lead, draw = self._send(result)
+        exposed = draw.call_args[0][1]
+        self.assertEqual([e["key"] for e in exposed], ["画风"])
+        self.assertEqual(exposed[0]["positive"], ["oil painting (medium)", "cold colors"])
+        self.assertEqual(exposed[0]["note"], "厚涂，冷色")
+        self.assertTrue(exposed[0].get("edited_this_turn"))
+        # the project row waits for the button
+        self.assertEqual([p["status"] for p in self._proposals()], ["pending"])
+        self.assertEqual(Setting.objects.get(title="画风").positive, ["oil painting (medium)"])
+
+    def test_the_entries_the_lead_writes_are_this_conversations_at_once(self):
+        """No consent needed: the conversation's own layer is the lead's
+        notebook. They are switched on, dated to the turn, and the picture of
+        the same turn draws from them."""
+        result = {
+            **FAKE_IMAGE_RESULT,
+            "settings": [_entry("黄昏", note="傍晚", positive="sunset", category="光")],
+            "characters": [_entry("林", note="银发", positive="silver hair",
+                                  variants=[_entry("便服", note="米色", positive="beige sweater")])],
+            "draw": {**FAKE_IMAGE_RESULT["draw"], "expose": ["黄昏", "林/便服"]},
+        }
+        _lead, draw = self._send(result)
+        msg = Message.objects.get(conversation_id=self.conv["id"], role="assistant")
+        dusk = Setting.objects.get(title="黄昏")
+        self.assertEqual(dusk.conversation_id, uuid.UUID(self.conv["id"]))
+        self.assertIsNone(dusk.folder_id)
+        self.assertEqual(dusk.origin_seq, msg.seq)
+        self.assertEqual(Character.objects.get(name="林").variants.get(title="便服").positive, ["beige sweater"])
+        self.assertEqual(self._proposals(), [])
+        self.assertEqual([e["key"] for e in draw.call_args[0][1]], ["黄昏", "林", "林/便服"])
+        self.assertEqual([e["origin_seq"] for e in draw.call_args[0][1]], [msg.seq] * 3)
+        notes = (msg.model_raw or {}).get("edit_notes") or []
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].startswith(ui_text.LIBRARY_WRITTEN.split("{what}")[0]))
+        # a variant is named the way a person reads it, never with the lead's slash
+        for key in ("黄昏", "林", ui_text.ENTRY_VARIANT.format(name="林", title="便服")):
+            self.assertIn(key, notes[0])
+        self.assertNotIn("林/便服", notes[0])
 
     def test_branch_lands_in_the_same_folder_with_the_same_selection(self):
         s = self.c.post(
@@ -1944,22 +2052,22 @@ class DeepSeekRetryTests(TestCase):
         seen = []
         out = self._complete(
             self._resp("对不起，我没法照做"),
-            self._resp('{"base_prompt": "1girl"}'),
+            self._resp('{"positive": "1girl"}'),
             on_retry=seen.append,
         )
-        self.assertEqual(out.parsed["base_prompt"], "1girl")
+        self.assertEqual(out.parsed["positive"], "1girl")
         self.assertEqual(out.retries, 1)
         self.assertEqual(len(seen), 1, "the caller must be told, so it can say so")
 
     def test_empty_content_is_the_same_budget(self):
         """Its docs call this out by name; it is not a separate allowance."""
-        out = self._complete(self._resp(""), self._resp('{"base_prompt": "x"}'))
+        out = self._complete(self._resp(""), self._resp('{"positive": "x"}'))
         self.assertEqual(out.retries, 1)
 
     def test_a_truncated_answer_is_retried_rather_than_half_parsed(self):
         out = self._complete(
-            self._resp('{"base_prompt": "1girl, garde', finish="length"),
-            self._resp('{"base_prompt": "x"}'),
+            self._resp('{"positive": "1girl, garde', finish="length"),
+            self._resp('{"positive": "x"}'),
         )
         self.assertEqual(out.retries, 1)
 
@@ -1970,7 +2078,7 @@ class DeepSeekRetryTests(TestCase):
         self.assertEqual(len(seen), 1, "one retry means exactly one extra attempt")
 
     def test_a_good_first_answer_costs_nothing_extra(self):
-        out = self._complete(self._resp('{"base_prompt": "x"}'))
+        out = self._complete(self._resp('{"positive": "x"}'))
         self.assertEqual(out.retries, 0)
 
     @override_settings(DEEPSEEK_RETRIES=0)
@@ -1980,9 +2088,9 @@ class DeepSeekRetryTests(TestCase):
 
     def test_the_retry_count_reaches_the_turn_so_the_ui_can_show_it(self):
         with self._replies(
-            self._resp(""), self._resp('{"scene": "x", "size": "portrait"}')
+            self._resp(""), self._resp('{"positive": "lighthouse", "size": "portrait"}')
         ):
-            out = llm.draw_turn({"main": "灯塔", "size": "portrait"})
+            out = llm.draw("灯塔", [])
         self.assertEqual(out["usage"]["retries"], 1)
 
 
@@ -2008,16 +2116,16 @@ class ReasoningIsKeptTests(TestCase):
             )
 
     def test_it_comes_back_on_the_completion(self):
-        out = self._complete(self._reply('{"base_prompt": "x"}', "想了想：先定人数 tag。"))
+        out = self._complete(self._reply('{"positive": "x"}', "想了想：先定人数 tag。"))
         self.assertEqual(out.reasoning, "想了想：先定人数 tag。")
 
     def test_a_provider_that_sends_none_is_not_a_problem(self):
-        reply = self._reply('{"base_prompt": "x"}', "")
+        reply = self._reply('{"positive": "x"}', "")
         del reply["choices"][0]["message"]["reasoning_content"]
         self.assertEqual(self._complete(reply).reasoning, "")
 
     def test_a_runaway_chain_is_clipped_rather_than_stored_whole(self):
-        out = self._complete(self._reply('{"base_prompt": "x"}', "长" * 50_000))
+        out = self._complete(self._reply('{"positive": "x"}', "长" * 50_000))
         self.assertLess(len(out.reasoning), 50_000)
         self.assertIn("已截断", out.reasoning)
 
@@ -2025,16 +2133,14 @@ class ReasoningIsKeptTests(TestCase):
         """nai_prompts is replayed verbatim by 重绘 — nothing extra may ride in it."""
         with mock.patch.object(
             providers.deepseek, "post_with_retry",
-            lambda *a, **k: self._reply('{"scene": "x", "size": "portrait"}', "因为…"),
+            lambda *a, **k: self._reply('{"positive": "lighthouse", "size": "portrait"}', "因为…"),
         ):
-            drawn = llm.draw_turn({"main": "灯塔", "size": "portrait"})
+            drawn = llm.draw("灯塔", [])
         self.assertEqual(drawn["reasoning"], "因为…")
-        # and llm.prompts_from is what strips it — asked here rather than
-        # mirrored, so that this cannot pass while the pipeline keeps a key the
-        # test does not know about
-        self.assertIn("reasoning", drawn)
-        self.assertNotIn("reasoning", llm.prompts_from(drawn))
-        self.assertNotIn("tool_runs", llm.prompts_from(drawn))
+        # the prompt dict is the words NovelAI gets and nothing else; the
+        # working rides beside it, not in it
+        self.assertEqual(set(drawn["nai_prompts"]), {"size", "base_prompt", "character_prompts", "negative_prompt"})
+        self.assertIn("lighthouse", drawn["nai_prompts"]["base_prompt"])
 
 
 class AssembledWordingTests(TestCase):
@@ -2049,19 +2155,23 @@ class AssembledWordingTests(TestCase):
         "core/services/llm.py",
         "core/services/pipeline.py",
         "core/services/library.py",
+        "core/services/assemble.py",
+        "core/services/drawnote.py",
+        "core/services/library_lines.py",
+        "core/services/proposals.py",
         "core/services/imaging.py",
         "core/services/danbooru.py",
         "core/services/providers/base.py",
     ]
 
-    #: Chinese that stays in code on purpose: it is shown to the user, never
-    #: sent to a model. Keyed by file, with why.
+    #: Chinese that stays in code on purpose: it is shown to the user or is
+    #: data the app matches against, never sent to a model. Keyed by file.
     UI_COPY = {
-        "core/services/llm.py": ["抱歉，我走神了"],
-        "core/services/pipeline.py": ["万", "新对话", "这个对话已经用掉约", "接近模型上限",
-                                      "超出后最早的消息", "或用某条消息下的", "出图数量"],
-        "core/services/providers/base.py": ["后面还有", "这个对话的上下文已超过",
-                                            "继续聊没问题"],
+        # a docstring names the control
+        "core/services/pipeline.py": ["出图数量"],
+        # the category word that puts a setting's tags first, and the script
+        # range the foreign-text check looks for
+        "core/services/assemble.py": ["画风", "一-鿿"],
     }
 
     def test_no_model_facing_string_is_left_in_the_code(self):
@@ -2084,35 +2194,39 @@ class AssembledWordingTests(TestCase):
     #: table IS the contract — str.format has no other one — so renaming a
     #: placeholder in wording.py fails here instead of mid-turn with a KeyError.
     PLACEHOLDERS = {
-        "LIBRARY_VARIANT_LABEL": {"title"},     # library.as_prompt_text
-        "APP_NOTE_REFERENCES_SKIPPED": {"n"},   # pipeline.build_history
-        "SYSTEM_NOTE_DRAW": {"id"},             # drawnote.lines
-                "TITLE_USER": {"user", "reply"},        # llm.make_title
-        "SCHEMA_PROSE_LISTS": {"fields"},       # providers.base.schema_prose
-        "SCHEMA_PROSE_NULLABLE": {"fields"},    # providers.base.schema_prose
+        "APP_NOTE_EXPOSED": {"keys"},                       # drawnote.lines
+        "EXPOSE_MISSING": {"keys"},                         # pipeline._exposure_check
+        "APP_NOTE_REFERENCES_SKIPPED": {"n"},               # pipeline.build_history
+        "SYSTEM_NOTE_DRAW": {"id"},                         # drawnote.lines
+        "TITLE_USER": {"user", "reply"},                    # llm.make_title
+        "SCHEMA_PROSE_LISTS": {"fields"},                   # providers.base.schema_prose
+        "SCHEMA_PROSE_NULLABLE": {"fields"},                # providers.base.schema_prose
         "SCHEMA_PROSE_LIST_CAP": {"field", "cap"},
-        "TOOL_TAGS_QUERY": {"query"},            # danbooru.answer
-        "TOOL_TAGS_TRIMMED": {"n"},              # danbooru.answer
-        "CURRENT_SETTING": {"title"},                         # llm.format_current
-        "SUBJECT_KEY": {"n"},                                 # services.prompt.from_model
-        "LIBRARY_IN_PROJECT": {"project"},                    # library.as_prompt_text
-        "LIBRARY_CHARACTER_HEADING": {"name"},                # library.as_prompt_text
-        "LIBRARY_SETTING_HEADING": {"title"},                 # library.as_prompt_text
-        "LIBRARY_OFF_CHARACTER": {"name", "text"},            # library._off_entries
-        "LIBRARY_OFF_VARIANTS": {"titles"},                   # library._off_entries
-        "LIBRARY_OFF_SETTING": {"title", "text"},             # library._off_entries
-        "CURRENT_SUBJECT": {"key"},                           # llm.format_current
-        "CURRENT_SUBJECT_FROM": {"name"},                     # llm.format_current
-        "SYSTEM_NOTE_MAIN": {"id", "n"},                      # views.chat.set_main_image
-        "LINES_FOR_SETTING": {"title"},             # services.library_lines.brief
-        "LINES_FOR_CHARACTER": {"name"},            # services.library_lines.brief
-        "LINES_FOR_VARIANT": {"name", "title"},     # services.library_lines.brief
+        "TOOL_TAGS_QUERY": {"query"},                       # danbooru.answer
+        "TOOL_TAGS_TRIMMED": {"n"},                         # danbooru.answer
+        "ENTRY_FROM_LEAD": {"id"},                          # library._origin_mark
+        "LIBRARY_IN_PROJECT": {"project"},                  # library.as_prompt_text
+        "FILL_FOR_SETTING": {"title", "category"},          # services.library_lines.brief
+        "FILL_FOR_CHARACTER": {"name"},                     # services.library_lines.brief
+        "FILL_FOR_VARIANT": {"name", "title"},              # services.library_lines.brief
+        "REVIEW_LIMIT_LINE": {"limit", "rule", "counts"},   # llm.format_compress
+        "REVIEW_LIMIT_OVER": {"over"},                      # llm.format_compress
+        "REVIEW_COUNT_BASE": {"n"},                         # llm.format_compress
+        "REVIEW_COUNT_CHAR": {"key", "n"},                  # llm.format_compress
+        "REVIEW_COUNT_NEGATIVE": {"n"},                     # llm.format_compress
+        "REVIEW_PROMPT_BASE": {"text"},                     # llm.format_compress
+        "REVIEW_PROMPT_CHAR": {"key", "text"},              # llm.format_compress
+        "REVIEW_PROMPT_CHAR_NEGATIVE": {"key", "text"},     # llm.format_compress
+        "REVIEW_PROMPT_NEGATIVE": {"text"},                 # llm.format_compress
     }
 
     #: The same contract for core/ui_text.py, the sentences a person reads.
     UI_PLACEHOLDERS = {
         "TOO_MANY_ATTEMPTS": {"minutes"},            # views.auth
         "LANGUAGE_UNKNOWN": {"codes"},               # views.appsettings
+        "PROMPT_OVER_LIMIT": {"tokens", "limit"},    # pipeline._prompts_and_paint
+        "EXPOSE_UNKNOWN": {"keys"},                  # pipeline._prompts_and_paint
+        "LIBRARY_WRITTEN": {"what"},                 # pipeline._write_library
         "TITLE_REQUIRED": {"max"},                   # views.phrases / views.projects
         "NAME_REQUIRED": {"max"},                    # views.projects
         "CONTENT_REQUIRED": {"max"},                 # views.phrases
@@ -2127,41 +2241,22 @@ class AssembledWordingTests(TestCase):
         "IMAGE_OVER_LIMIT": {"index"},               # views.internal
         "IMAGE_INVALID": {"index", "error"},         # views.internal
         "BRANCH_TITLE": {"title"},                   # views.chat.branch
-        "CONTEXT_NEAR_LIMIT": {"used", "limit"},     # pipeline.context_note
+        "CONTEXT_NEAR_LIMIT": {"used", "limit"},     # notices.render
         "LONG_CONTEXT": {"threshold"},               # providers.base
         "LONG_CONTEXT_PRICED": {"threshold"},        # providers.xai
         "REASONING_CLIPPED": {"chars"},              # providers.base.clip_reasoning
         "CONTINUOUS_START": {"of"},                             # continuous.arm
         "CONTINUOUS_SUMMARY": {"head", "of", "done", "failed"},  # continuous._close
-        "PROMPT_UNKNOWN_LINES": {"who", "lines"},   # services.prompt.check
-        "PROMPT_UNKNOWN_SETTING_LINES": {"title", "lines"},   # services.prompt.check
-        "PATCH_FIELD_HALVES": {"where", "key"},               # services.prompt.apply
-        "PROMPT_IDENTITY_LINE_MISSING": {"who", "lines"},    # services.prompt.check
-        "PROMPT_PATCH_ON_UNPICKED_LINE": {"who", "lines"},    # services.prompt.check
-        "PROMPT_LOOK_ECHOES_LINES": {"who", "tags"},          # services.prompt.check
-        "PROMPT_SENTENCE_IN_TAGS": {"where", "text"},         # services.prompt.check
-        "PROMPT_LINE_NOT_ENGLISH": {"who", "line"},           # services.prompt.check
         "PAINT_ONE_FAILED": {"n", "error"},                   # services.pipeline._paint
-        "PROMPT_MULTI_WITHOUT_CENTER": {"who"},               # services.prompt.check
-        "PROPOSAL_LINES_DROPPED": {"name", "n", "parts"},     # services.proposals
-        "PROPOSAL_NAME_TAKEN": {"name"},                      # services.proposals
-        "PROPOSAL_NOT_RECORDED": {"error"},                   # services.pipeline._record_proposal
-        "COPY_FROM_MISSED": {"name", "picture"},              # services.pipeline._resolve_copies
-        "PATCH_NOT_AN_OBJECT": {"where"},                     # services.prompt.apply
-        "PATCH_OP_NOT_ALLOWED": {"where", "op", "allowed"},   # services.prompt.apply
-        "PATCH_NO_SUCH_SUBJECT": {"who"},                     # services.prompt.apply
-        "PATCH_NO_SUCH_SUBJECT_SLOT": {"who", "slot"},        # services.prompt.apply
-        "PATCH_PATCHES_SET_ONLY": {"who"},                    # services.prompt.apply
-        "PATCH_NO_SUCH_SLOT": {"slot"},                       # services.prompt.apply
+        "PROPOSAL_NAME_TAKEN": {"name"},                      # views.projects.resolve_proposal
+        "PROPOSAL_NOT_RECORDED": {"error"},                   # services.pipeline._write_library
         "PROPOSAL_CREATED_SETTING": {"title"},                # services.proposals
         "PROPOSAL_UPDATED_SETTING": {"title"},                # services.proposals
         "PROPOSAL_CREATED_CHARACTER": {"name"},               # services.proposals
         "PROPOSAL_UPDATED_CHARACTER": {"name"},               # services.proposals
         "PROPOSAL_CREATED_VARIANT": {"name", "title"},        # services.proposals
         "PROPOSAL_UPDATED_VARIANT": {"name", "title"},        # services.proposals
-        "PROPOSAL_CREATED_SETTING_OWN": {"title"},            # services.proposals
-        "PROPOSAL_CREATED_CHARACTER_OWN": {"name"},           # services.proposals
-        "PROPOSAL_CREATED_VARIANT_OWN": {"name", "title"},    # services.proposals
+        "ENTRY_VARIANT": {"name", "title"},                   # library.write_conversation_entries
         "MODEL_OUT_OF_TOKENS": {"name"},            # providers.deepseek.complete
         "MODEL_EMPTY": {"name"},                    # providers.deepseek.complete
         "MODEL_NOTHING_USABLE": {"name"},           # providers.deepseek.complete
@@ -2169,31 +2264,28 @@ class AssembledWordingTests(TestCase):
         "MODEL_UNREADABLE": {"name"},               # providers.base.parse_json_lenient
     }
 
-    def test_every_ui_placeholder_is_one_a_caller_actually_fills_in(self):
+    @staticmethod
+    def _placeholders(module) -> dict:
         import re
 
         found = {}
-        for name in dir(ui_text):
+        for name in dir(module):
             if name.startswith("_"):
                 continue
-            value = getattr(ui_text, name)
+            value = getattr(module, name)
             if isinstance(value, str) and re.search(r"\{\w+\}", value):
                 found[name] = set(re.findall(r"\{(\w+)\}", value))
+        return found
+
+    def test_every_ui_placeholder_is_one_a_caller_actually_fills_in(self):
+        found = self._placeholders(ui_text)
         self.assertEqual(found, self.UI_PLACEHOLDERS,
                          "a placeholder was renamed, added or removed without its caller")
         for name, keys in found.items():
             getattr(ui_text, name).format(**{k: "x" for k in keys})
 
     def test_every_placeholder_is_one_a_caller_actually_fills_in(self):
-        import re
-
-        found = {}
-        for name in dir(wording):
-            if name.startswith("_"):
-                continue
-            value = getattr(wording, name)
-            if isinstance(value, str) and re.search(r"\{\w+\}", value):
-                found[name] = set(re.findall(r"\{(\w+)\}", value))
+        found = self._placeholders(wording)
         self.assertEqual(
             found,
             self.PLACEHOLDERS,
@@ -2209,7 +2301,7 @@ class AssembledWordingTests(TestCase):
         is in frame gets written. A label in code outranks a prompt file in
         practice, because it arrives later and reads as more specific.
         """
-        for label in (wording.LIBRARY_BLOCK_HEADING, wording.BRIEF_LINES_HEADING):
+        for label in (wording.LIBRARY_BLOCK_HEADING, wording.DRAW_ENTRIES_HEADING):
             for imperative in ("必须", "要", "不要", "应该", "请"):
                 self.assertNotIn(imperative, label, f"{label!r} is instructing")
 
@@ -2231,18 +2323,37 @@ class AssembledWordingTests(TestCase):
         self.assertIn(wording.LIBRARY_EMPTY, joined)
 
     def test_the_drawing_model_is_told_so_too(self):
-        with mock.patch.object(llm, "_run", return_value=({"scene": "x"}, {})) as run:
-            llm.draw_turn({"composition": "灯塔", "size": "portrait"}, "")
+        with mock.patch.object(llm, "_run", return_value=({"positive": "lighthouse"}, {})) as run:
+            llm.draw("灯塔", [])
         sent = run.call_args[0][1][0]["content"]
-        self.assertIn(wording.BRIEF_LINES_HEADING, sent)
-        self.assertIn(wording.LIBRARY_NO_LINES, sent)
+        self.assertIn(wording.DRAW_ENTRIES_HEADING, sent)
+        self.assertIn(wording.EXPOSURE_NONE, sent)
 
-    def test_a_selected_library_still_arrives_under_its_heading(self):
-        with mock.patch.object(llm, "_run", return_value=({"scene": "x"}, {})) as run:
-            llm.draw_turn({"composition": "灯塔", "size": "portrait"}, "◆ 设定「统一画风」：厚涂")
+    def test_an_exposed_entry_arrives_under_its_heading(self):
+        entry = {"id": "1", "kind": "setting", "key": "统一画风", "layer": "project", "shown_key": "@统一画风",
+                 "note": "厚涂", "positive": ["impasto"], "negative": [], "prose": "", "origin_seq": None,
+                 "category": "画风"}
+        with mock.patch.object(llm, "_run", return_value=({"positive": "lighthouse"}, {})) as run:
+            llm.draw("灯塔", [entry])
         sent = run.call_args[0][1][0]["content"]
-        self.assertIn(wording.BRIEF_LINES_HEADING, sent)
+        self.assertIn(wording.DRAW_ENTRIES_HEADING, sent)
         self.assertIn("厚涂", sent)
+        self.assertIn("impasto", sent)
+
+    def test_the_drawing_model_reads_one_message_and_nothing_of_the_conversation(self):
+        """
+        The drawing model is context-free by design: the description and the
+        exposed entries are its whole world. Not the history, not the user's
+        words, not the previous picture.
+        """
+        from core import prompts
+
+        with mock.patch.object(llm, "_run", return_value=({"positive": "lighthouse"}, {})) as run:
+            llm.draw("灯塔", [], text="午夜", size="landscape")
+        system, messages = run.call_args[0][0], run.call_args[0][1]
+        self.assertEqual(system, prompts.drawing())
+        self.assertEqual([m["role"] for m in messages], ["user"])
+        self.assertEqual(messages[0]["content"], llm.format_draw("灯塔", [], text="午夜", size="landscape"))
 
 
 class SchemaProseTests(TestCase):
@@ -2261,8 +2372,9 @@ class SchemaProseTests(TestCase):
 
     def test_it_describes_the_real_shape(self):
         prose = providers.base.schema_prose(llm.DRAW_SCHEMA)
-        for field in ("count", "style", "camera", "scene", "light",
-                      "characters", "negative_prompt", "size"):
+        for field in ("entries", "use", "add_positive", "remove_positive", "add_negative",
+                      "remove_negative", "positive", "negative", "prose", "subjects",
+                      "center_x", "size"):
             self.assertIn(field, prose)
         # dropped from both schemas — the app decides how many to paint
         self.assertNotIn("n_images", prose)
@@ -2270,7 +2382,8 @@ class SchemaProseTests(TestCase):
     def test_a_nullable_branch_shows_the_substantive_side(self):
         """`draw` is object-or-null; a skeleton of `null` would teach nothing."""
         prose = providers.base.schema_prose(llm.LEAD_SCHEMA)
-        for field in ("reply", "draw", "subjects", "composition", "scene", "camera"):
+        for field in ("reply", "settings", "characters", "edits", "draw",
+                      "description", "expose", "inherits"):
             self.assertIn(field, prose)
 
     def test_unparseable_output_names_the_provider(self):
@@ -2305,9 +2418,9 @@ class AnswersThatAlmostParseTests(TestCase):
     """
 
     def test_a_real_line_break_inside_a_string_is_read(self):
-        raw = '{"reply": "好", "draw": {"main": "少女站在城墙上\n侧身回头"}}'
+        raw = '{"reply": "好", "draw": {"description": "少女站在城墙上\n侧身回头"}}'
         got = providers.base.parse_json_lenient(raw, "deepseek")
-        self.assertEqual(got["draw"]["main"], "少女站在城墙上\n侧身回头")
+        self.assertEqual(got["draw"]["description"], "少女站在城墙上\n侧身回头")
 
     def test_it_still_digs_the_object_out_of_prose(self):
         raw = '好的，这是结果：\n```json\n{"reply": "好"}\n```'
@@ -3220,21 +3333,11 @@ class ImageCountIsTheAppsTests(TestCase):
 
     def setUp(self):
         self.c = Client()
-        self.c.post(
-            "/api/auth/login",
-            json.dumps({"username": "tester", "password": "test-password-123"}),
-            content_type="application/json",
-        )
+        _login(self.c)
 
     def _draw(self, n_images, lead=None, draw=None):
         cid = self.c.post("/api/conversations", "{}", content_type="application/json").json()["id"]
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=lead or FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=draw or FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 7)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
+        with _Drawn(lead=lead, draw=draw, paint=(_png_bytes(), 7)):
             self.c.post(
                 f"/api/conversations/{cid}/messages", {"text": "画", "n_images": str(n_images)}
             )
@@ -3255,40 +3358,50 @@ class ImageCountIsTheAppsTests(TestCase):
 
     def test_a_model_that_asks_for_more_anyway_is_ignored(self):
         """Nothing stops a model from putting the key back; the app still wins."""
-        msg = self._draw(1, draw={**FAKE_DRAW_RESULT, "n_images": 4})
+        msg = self._draw(1, draw=_draw_result(n_images=4))
         self.assertEqual(len(msg.attachments.all()), 1)
 
-    def test_the_picture_description_carries_its_subjects(self):
-        """Who is in the picture is a list of subjects, each with its own fields."""
+    def test_the_lead_says_what_a_picture_is_and_nothing_about_count(self):
+        """A picture is a description, the keys it exposes, the drawing it
+        continues, the text to render and the size -- the five things the
+        drawing model and the app need, and no count."""
         draw = llm.LEAD_SCHEMA["schema"]["properties"]["draw"]["anyOf"][1]
-        self.assertIn("subjects", draw["properties"])
-        self.assertIn("subjects", draw["required"])
-        subject = draw["properties"]["subjects"]["items"]
-        for field in ("who", "outfit", "look", "changes", "doing", "where"):
-            self.assertIn(field, subject["properties"])
+        self.assertEqual(set(draw["properties"]), set(llm.DRAW_FIELDS))
+        self.assertEqual(set(llm.DRAW_FIELDS), {"description", "expose", "inherits", "text", "size"})
+        self.assertEqual(draw["required"], list(llm.DRAW_FIELDS))
+        self.assertEqual(draw["properties"]["expose"]["items"]["type"], "string")
+        # and the drawing model answers per entry and per subject, by key
+        change = llm.DRAW_SCHEMA["schema"]["properties"]["entries"]["items"]
+        self.assertEqual(set(change["properties"]), {"key", "use", "add_positive", "remove_positive",
+                                                     "add_negative", "remove_negative", "add_prose", "remove_prose"})
+        subject = llm.DRAW_SCHEMA["schema"]["properties"]["subjects"]["items"]
+        self.assertEqual(set(subject["properties"]), {"key", "center_x", "center_y"})
 
-    def test_the_drawing_model_reads_subjects_before_the_picture(self):
-        text = llm.format_brief({
-            "subjects": [{"who": "林", "look": "银灰长发", "doing": "回头"}],
-            "composition": "船头", "size": "portrait",
-        })
-        self.assertIn("「林」", text)
-        self.assertIn("外观：银灰长发", text)
-        self.assertIn("在做什么：回头", text)
-        # the subjects first, then the picture around them
-        self.assertLess(text.index("「林」"), text.index("船头"))
+    def test_the_drawing_model_reads_the_description_then_the_entries(self):
+        entry = {"id": "1", "kind": "character", "key": "林", "layer": "project", "shown_key": "@林",
+                 "note": "银灰长发", "positive": ["silver hair"], "negative": [], "prose": "", "origin_seq": None}
+        text = llm.format_draw("林在船头回头", [entry], text="夜航", size="landscape")
+        self.assertIn(wording.DRAW_DESCRIPTION_HEADING + "\n林在船头回头", text)
+        self.assertIn(wording.DRAW_TEXT_HEADING + "\n夜航", text)
+        self.assertIn(wording.DRAW_SIZE_HEADING + "\nlandscape", text)
+        self.assertIn(wording.DRAW_ENTRIES_HEADING, text)
+        self.assertIn("◆ 林（" + wording.ENTRY_KIND_CHARACTER + "）", text)
+        self.assertIn(wording.ENTRY_NOTE_LABEL + "：银灰长发", text)
+        self.assertIn(wording.ENTRY_POSITIVE_LABEL + "：silver hair", text)
+        # the description first, then the entries it names
+        self.assertLess(text.index("林在船头回头"), text.index("◆ 林"))
+        self.assertNotIn("张数", text)
+        self.assertNotIn("n_images", text)
 
     def test_an_empty_field_is_left_out_rather_than_sent_blank(self):
-        text = llm.format_brief({
-            "subjects": [{"who": "林", "look": "", "doing": "回头"}],
-            "composition": "走廊", "size": "portrait",
-        })
-        self.assertNotIn("外观", text)
-
-    def test_the_brief_the_drawing_model_reads_says_nothing_about_count(self):
-        text = llm.format_brief({"composition": "灯塔", "size": "landscape"})
-        self.assertIn("画幅：landscape", text)
-        self.assertNotIn("张数", text)
+        bare = {"id": "1", "kind": "setting", "key": "黄昏", "layer": "conversation", "shown_key": "黄昏",
+                "note": "", "positive": [], "negative": [], "prose": "", "origin_seq": 3, "category": ""}
+        text = llm.format_draw("走廊", [bare])
+        self.assertNotIn(wording.DRAW_TEXT_HEADING, text)
+        self.assertNotIn(wording.DRAW_SIZE_HEADING, text)
+        self.assertNotIn(wording.ENTRY_NEGATIVE_LABEL, text)
+        self.assertIn(wording.ENTRY_EMPTY, text)
+        self.assertIn(wording.EXPOSURE_NONE, llm.format_draw("走廊", []))
 
     def test_a_rerun_paints_the_same_number_as_a_fresh_send(self):
         """
@@ -3297,13 +3410,7 @@ class ImageCountIsTheAppsTests(TestCase):
         selected, one painted, silently.
         """
         cid = self.c.post("/api/conversations", "{}", content_type="application/json").json()["id"]
-        with _sync_jobs(), mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 7)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
+        with _Drawn(paint=(_png_bytes(), 7)):
             self.c.post(f"/api/conversations/{cid}/messages", {"text": "画", "n_images": "2"})
             first = Message.objects.get(conversation_id=cid, role="assistant", archived=False)
             self.assertEqual(len(first.attachments.all()), 2)
@@ -3344,7 +3451,7 @@ class ImageCountIsTheAppsTests(TestCase):
         )
         src = Message.objects.create(
             conversation=conv, seq=2, role="assistant", status="done", content="好",
-            kind="image", nai_prompts={**FAKE_DRAW_RESULT, "n_images": 4},
+            kind="image", nai_prompts={**FAKE_NAI_PROMPTS, "n_images": 4},
         )
         with mock.patch.object(jobs, "start_redraw"):
             self.c.post(f"/api/messages/{src.id}/redraw")
@@ -3362,13 +3469,7 @@ class ImageCountIsTheAppsTests(TestCase):
             conversation=conv, seq=2, role="assistant", status="pending",
             force_n_images=2, heartbeat_at=timezone.now(),
         )
-        with mock.patch.object(
-            pipeline.llm, "lead_turn", return_value=FAKE_IMAGE_RESULT
-        ), mock.patch.object(
-            pipeline.llm, "draw_turn", return_value=FAKE_DRAW_RESULT
-        ), mock.patch.object(
-            pipeline.novelai, "generate_one", return_value=(_png_bytes(), 7)
-        ), mock.patch.object(pipeline.llm, "make_title", return_value=""):
+        with _Drawn(paint=(_png_bytes(), 7)):
             pipeline.run_generation(msg.id)
         self.assertEqual(len(Message.objects.get(id=msg.id).attachments.all()), 2)
 
@@ -3382,27 +3483,38 @@ class InspectRawTests(TestCase):
 
     def setUp(self):
         self.c = Client()
-        self.c.post(
-            "/api/auth/login",
-            json.dumps({"username": "tester", "password": "test-password-123"}),
-            content_type="application/json",
-        )
+        _login(self.c)
         self.conv = Conversation.objects.create(title="看看它说了什么")
         Message.objects.create(
             conversation=self.conv, seq=1, role="user", status="done", content="画点什么"
         )
+        self.assembly = [{"key": "画风", "kind": "setting", "used": True,
+                          "positive": ["oil painting (medium)"], "negative": [], "prose": ""}]
         self.msg = Message.objects.create(
             conversation=self.conv, seq=2, role="assistant", status="done",
             content="好", kind="image", prompt_tokens=1234,
             model_raw={
                 "reply": "好",
-                "draw": {"main": "灯塔", "size": "portrait", "n_images": 1},
-                "edits": [{"kind": "setting", "title": "统一画风"}],
+                "draw": {"description": "灯塔", "expose": ["@画风"], "inherits": "", "text": "", "size": "portrait"},
+                "settings": [_entry("黄昏", note="傍晚", positive="sunset", category="光")],
+                "characters": [],
+                "edits": {"settings": [_entry("@统一画风", note="厚涂", positive="impasto", category="画风")],
+                          "characters": []},
                 "usage": {"prompt_tokens": 1234, "completion_tokens": 56},
+                "draw_reasoning": "先定画风",
+                "draw_notes": ["base: a doubled space"],
                 # a field the endpoint does not name must not leak through
                 "internal_debug": "should not appear",
             },
             nai_prompts={"base_prompt": "lighthouse", "size": "portrait", "n_images": 1},
+            prompt={"description": "灯塔", "text": "", "size": "portrait", "inherits": "",
+                    "exposed_keys": ["@画风"],
+                    "exposed": [{"key": "画风", "kind": "setting", "layer": "project", "shown_key": "@画风",
+                                 "note": "厚涂", "positive": ["oil painting (medium)"], "negative": [],
+                                 "prose": "", "origin_seq": None, "category": "画风"}],
+                    "answer": {"entries": {}, "positive": ["lighthouse"], "negative": [], "prose": "",
+                               "subjects": [], "size": "portrait"},
+                    "assembly": self.assembly},
         )
 
     def test_it_returns_both_models_sides_of_the_turn(self):
@@ -3410,12 +3522,24 @@ class InspectRawTests(TestCase):
         self.assertEqual(r.status_code, 200)
         data = r.json()
         self.assertEqual(data["lead"]["reply"], "好")
-        self.assertEqual(data["lead"]["draw"]["main"], "灯塔")
-        self.assertEqual(data["lead"]["edits"][0]["title"], "统一画风")
+        self.assertEqual(data["lead"]["draw"]["description"], "灯塔")
+        self.assertEqual(data["lead"]["settings"][0]["key"], "黄昏")
+        self.assertEqual(data["lead"]["edits"]["settings"][0]["key"], "@统一画风")
         self.assertEqual(data["lead"]["usage"]["completion_tokens"], 56)
         self.assertEqual(data["drawing"]["base_prompt"], "lighthouse")
+        # how the prompt was made: the entries as they read, and what each came to
+        self.assertEqual(data["picture"]["exposed_keys"], ["@画风"])
+        self.assertEqual(data["picture"]["exposed"][0]["note"], "厚涂")
+        self.assertEqual(data["picture"]["assembly"], self.assembly)
+        self.assertEqual(data["reasoning"]["draw"], "先定画风")
+        self.assertEqual(data["notes"], ["base: a doubled space"])
+        self.assertIsNone(data["compress"])
         self.assertEqual(data["prompt_tokens"], 1234)
         self.assertNotIn("internal_debug", json.dumps(data))
+
+    def test_the_transcript_row_says_what_each_entry_came_to(self):
+        shown = self.c.get(f"/api/conversations/{self.conv.id}/messages").json()["messages"][-1]
+        self.assertEqual(shown["used_entries"], self.assembly)
 
     def test_an_old_turns_description_is_still_readable(self):
         """Older turns keep the text a separate vision model wrote for them."""
@@ -3448,6 +3572,8 @@ class InspectRawTests(TestCase):
         data = self.c.get(f"/api/messages/{bare.id}/raw").json()
         self.assertIsNone(data["lead"]["reply"])
         self.assertIsNone(data["drawing"])
+        self.assertIsNone(data["picture"])
+        self.assertEqual(data["lead"]["settings"], [])
 
     def test_only_assistant_messages_have_one(self):
         user_msg = self.conv.messages.get(seq=1)
@@ -3475,8 +3601,9 @@ class SchemaProseSaysWhatTheSampleCannotTests(TestCase):
 
     def test_every_array_field_is_named_as_a_list(self):
         prose = self._prose(llm.LEAD_SCHEMA)
-        for field in ("edits.settings", "edits.characters",
-                      "edits.characters[].variants"):
+        for field in ("settings", "characters", "characters[].variants",
+                      "edits.settings", "edits.characters", "edits.characters[].variants",
+                      "draw.expose"):
             self.assertIn(field, prose)
         self.assertIn("0 个、1 个或多个", prose)
 
@@ -3508,10 +3635,13 @@ class SchemaProseSaysWhatTheSampleCannotTests(TestCase):
     def test_the_fields_whose_null_is_the_ordinary_answer_say_so(self):
         prose = self._prose(llm.LEAD_SCHEMA)
         self.assertIn("可以直接写 null", prose)
-        self.assertIn("draw、edits", prose)
+        self.assertIn("edits、draw", prose)
 
     def test_a_nullable_scalar_carries_it_inline(self):
         self.assertIn('"<number> | null"', self._prose(llm.DRAW_SCHEMA))
+        nullable_string = {"name": "x", "schema": {"type": "object", "properties": {
+            "note": {"anyOf": [{"type": "string"}, {"type": "null"}]}}}}
+        self.assertIn('"<string> | null"', self._prose(nullable_string))
 
     def test_the_intro_no_longer_demands_every_field(self):
         self.assertNotIn("每个字段都要有", wording.SCHEMA_PROSE_INTRO)
@@ -3531,54 +3661,64 @@ class OmittedReadsTheSameAsEmptyTests(TestCase):
     """
     wording.SCHEMA_PROSE_OUTRO promises the model that leaving a field out and
     filling it with "" are the same thing. That is a claim about these two
-    functions, so it is checked against them rather than trusted.
+    readers, so it is checked against them rather than trusted.
     """
 
-    def test_a_brief_with_fields_left_out_matches_one_spelled_out_in_full(self):
+    def test_a_lead_answer_with_fields_left_out_matches_one_spelled_out_in_full(self):
         sparse = llm._normalize_lead(
-            {"reply": "好", "draw": {"composition": "灯塔与船头", "size": "portrait"}}
+            {"reply": "好", "draw": {"description": "灯塔与船头"}}
         )
         spelled = llm._normalize_lead({
             "reply": "好",
-            "draw": {
-                "change": "", "subjects": [], "composition": "灯塔与船头", "camera": "",
-                "scene": "", "light": "", "style": "", "notes": "", "size": "portrait",
-            },
+            "settings": [],
+            "characters": [],
             "edits": None,
+            "draw": {"description": "灯塔与船头", "expose": [], "inherits": "", "text": "", "size": ""},
         })
         self.assertEqual(sparse, spelled)
         self.assertEqual(
             sparse["draw"],
-            {"change": "", "subjects": [], "composition": "灯塔与船头", "size": "portrait"},
+            {"description": "灯塔与船头", "expose": [], "inherits": "", "text": "", "size": ""},
         )
 
     def test_the_same_holds_for_the_drawing_model(self):
-        brief = {"composition": "灯塔", "size": "portrait"}
-        sparse = llm._normalize_draw({"scene": "lighthouse"}, brief, None)
-        blank = {"tags": "", "prose": ""}
-        spelled = llm._normalize_draw(
-            {"scene": {"tags": "lighthouse", "prose": ""}, "count": dict(blank), "style": dict(blank),
-             "camera": dict(blank), "light": dict(blank), "other": dict(blank), "text": "",
-             "settings": [], "negative_prompt": "", "characters": [], "size": "portrait"},
-            brief, None,
-        )
+        sparse = assemble.clean_answer({"positive": "lighthouse"})
+        spelled = assemble.clean_answer({
+            "entries": [], "positive": "lighthouse", "negative": "", "prose": "",
+            "subjects": [], "size": "",
+        })
         self.assertEqual(sparse, spelled)
+        self.assertEqual(sparse["positive"], ["lighthouse"])
+
+    def test_an_entry_change_with_fields_left_out_matches_a_full_one(self):
+        sparse = assemble.clean_answer({"entries": [{"key": "林"}]})
+        spelled = assemble.clean_answer({"entries": [{
+            "key": "林", "use": True, "add_positive": "", "remove_positive": "",
+            "add_negative": "", "remove_negative": "", "add_prose": "", "remove_prose": "",
+        }]})
+        self.assertEqual(sparse, spelled)
+        self.assertTrue(sparse["entries"]["林"]["use"])
 
     def test_the_wording_no_longer_claims_fields_may_not_be_omitted(self):
         self.assertNotIn("不要省略", wording.SCHEMA_PROSE_OUTRO)
 
-    def test_the_two_fields_that_really_are_load_bearing(self):
-        """Everything is optional except the two things there is no picture without."""
-        self.assertIsNone(llm._normalize_lead({"reply": "好", "draw": {"notes": "没有主体"}})["draw"])
-        with self.assertRaises(llm.ModelError):
-            llm._normalize_draw({"negative_prompt": "text"}, {"size": "portrait"}, None)
+    def test_the_fields_that_really_are_load_bearing(self):
+        """A picture is a description or an exposure; a drawing answer has to
+        put something in the picture. Everything else is optional."""
+        self.assertIsNone(llm._normalize_lead({"reply": "好", "draw": {"text": "没有主体"}})["draw"])
+        self.assertIsNotNone(llm._normalize_lead({"reply": "好", "draw": {"expose": ["林"]}})["draw"])
+        with mock.patch.object(llm, "_ask", return_value=({"negative": "text"}, {})):
+            with self.assertRaises(llm.ModelError):
+                llm.draw("灯塔", [])
 
 
 class ProposalWithNowhereToGoTests(TestCase):
     """
-    A conversation outside every project has no library to write to. That is
-    the intended behaviour — the library belongs to a project — but the card
-    has to say so up front rather than letting the button be pressed and fail.
+    A conversation outside every project has no project library to write to.
+    A card from such a turn (one made before the conversation left its
+    project, say) has to say so up front rather than letting the button be
+    pressed and fail; a new edit in such a conversation goes into its own
+    layer at once, and raises no card at all.
     """
 
     def setUp(self):
@@ -3591,7 +3731,7 @@ class ProposalWithNowhereToGoTests(TestCase):
         )
         self.proposal = LibraryProposal.objects.create(
             conversation=self.conv, message=self.msg, folder=None,
-            payload={"settings": [{"title": "黄昏之城", "content": "永远停在黄昏"}]},
+            payload={"settings": [_entry("黄昏之城", note="永远停在黄昏", category="场景")], "characters": []},
         )
 
     def test_the_payload_says_it_has_nowhere_to_land(self):
@@ -3624,29 +3764,35 @@ class ProposalWithNowhereToGoTests(TestCase):
         r = self.client.get(f"/api/conversations/{conv.id}/proposals")
         self.assertEqual(r.json()["proposals"][0]["folder_id"], str(folder.id))
 
-
-    def test_a_conversation_without_a_project_writes_to_its_own_layer(self):
+    def test_a_conversation_without_a_project_writes_the_edit_into_its_own_layer(self):
         """
         No project means no project library — but the conversation has a
-        layer of its own, and that is where the model's note lands, at once.
-        The row is still written, so the transcript can show what happened.
+        layer of its own, and that is where the lead's edit lands, at once,
+        with no card to approve.
         """
         conv = Conversation.objects.create(title="散养对话二号")
         msg = Message.objects.create(
-            conversation=conv, seq=1, role="assistant", status="done", content="好"
+            conversation=conv, seq=4, role="assistant", status="done", content="好"
         )
-        pipeline._record_proposal(
-            conv, msg, {"settings": [{"title": "黄昏之城", "content": "永远停在黄昏"}]}
-        )
-        proposal = LibraryProposal.objects.get(conversation=conv)
-        self.assertIsNone(proposal.folder)
-        self.assertEqual(proposal.status, "applied")
-        self.assertEqual(proposal.payload["settings"][0]["title"], "黄昏之城")
+        overlay = pipeline._write_library(conv, msg, {
+            **FAKE_TEXT_RESULT,
+            "edits": _project({"settings": [_entry("黄昏之城", note="永远停在黄昏", positive="sunset, city",
+                                                     category="场景")], "characters": []}),
+        })
+        self.assertFalse(LibraryProposal.objects.filter(conversation=conv).exists())
+        self.assertEqual(overlay, {})
         made = Setting.objects.get(title="黄昏之城")
         self.assertEqual(made.conversation_id, conv.id)
         self.assertIsNone(made.folder_id)
+        self.assertEqual(made.positive, ["sunset", "city"])
+        self.assertEqual(made.origin_seq, 4)
         # and it is in play for this conversation without anyone switching it on
         self.assertIn(made.id, set(conv.selected_settings.values_list("id", flat=True)))
+        msg.refresh_from_db()
+        notes = (msg.model_raw or {}).get("edit_notes") or []
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].startswith(ui_text.LIBRARY_WRITTEN.split("{what}")[0]))
+        self.assertIn("黄昏之城", notes[0])
 
     def test_nothing_worth_proposing_still_writes_nothing(self):
         """The silence was only wrong when there was something to say."""
@@ -3654,8 +3800,97 @@ class ProposalWithNowhereToGoTests(TestCase):
         msg = Message.objects.create(
             conversation=conv, seq=1, role="assistant", status="done", content="好"
         )
-        pipeline._record_proposal(conv, msg, {})
+        pipeline._write_library(conv, msg, FAKE_TEXT_RESULT)
         self.assertFalse(LibraryProposal.objects.filter(conversation=conv).exists())
+        self.assertEqual(Setting.objects.count(), 0)
+        msg.refresh_from_db()
+        self.assertNotIn("edit_notes", msg.model_raw or {})
+
+
+class ProposalsFromBeforeEntriesTests(TestCase):
+    """
+    A proposal still waiting when the library moved to entries says title,
+    text, tag lines and a scope. Its conversation part was written when it was
+    made; what waits is the project part. The migration keeps that part with
+    its text as the note and says nothing about tags, so approving it writes
+    the note and the patrol fills the tags from it.
+    """
+
+    OLD = {
+        "settings": [
+            {"title": "雾港", "content": "终年起雾的港口城市", "scope": "project",
+             "tags": [{"id": "s1", "part": "场景", "tags": "harbor, fog"}]},
+            {"title": "只改了行", "content": "", "scope": "project",
+             "tags": [{"id": "s1", "part": "场景", "tags": "night"}]},
+            {"title": "对话自己的", "content": "记提议时已经写进对话层", "tags": []},
+        ],
+        "characters": [
+            {"name": "林", "description": "黑色短发的少女", "scope": "project", "tags": [],
+             "variants": [{"title": "校服", "content": "深蓝色水手服", "tags": []}]},
+        ],
+    }
+
+    def setUp(self):
+        import importlib
+        self.migration = importlib.import_module("core.migrations.0031_old_proposals")
+        self.folder = Folder.objects.create(name="雾港故事")
+        self.conv = Conversation.objects.create(title="雾港", folder=self.folder)
+        self.msg = Message.objects.create(conversation=self.conv, seq=2, role="assistant", status="done", content="好")
+
+    def _carry_over(self, payload: dict, status: str = "pending") -> LibraryProposal:
+        from django.apps import apps
+        p = LibraryProposal.objects.create(conversation=self.conv, message=self.msg, folder=self.folder,
+                                           payload=payload, status=status)
+        self.migration.carry_over(apps, None)
+        p.refresh_from_db()
+        return p
+
+    def test_the_waiting_part_comes_over_as_notes(self):
+        self.assertEqual(self.migration.converted(self.OLD), {
+            "settings": [{"key": "@雾港", "note": "终年起雾的港口城市"}],
+            "characters": [{"key": "@林", "note": "黑色短发的少女",
+                            "variants": [{"key": "林/校服", "note": "深蓝色水手服"}]}],
+        })
+
+    def test_a_proposal_in_the_entries_shape_is_left_as_it_is(self):
+        payload = {"settings": [_entry("@雾港", note="终年起雾", category="场景")], "characters": []}
+        self.assertEqual(self._carry_over(payload).payload, payload)
+
+    def test_a_proposal_with_nothing_left_to_write_is_closed(self):
+        p = self._carry_over({"settings": [self.OLD["settings"][1], self.OLD["settings"][2]], "characters": []})
+        self.assertEqual(p.status, "rejected")
+        self.assertIsNotNone(p.resolved_at)
+
+    def test_a_settled_proposal_is_not_touched(self):
+        p = self._carry_over(self.OLD, status="applied")
+        self.assertEqual(p.payload, self.OLD)
+
+    def test_approving_it_writes_the_notes_and_leaves_the_tags_to_the_patrol(self):
+        from core.services import library_lines, proposals
+        p = self._carry_over(self.OLD)
+        proposals.apply(p)
+        place = Setting.objects.get(folder=self.folder, title="雾港")
+        lin = Character.objects.get(folder=self.folder, name="林")
+        uniform = CharacterVariant.objects.get(character=lin, title="校服")
+        self.assertEqual((place.content, lin.description, uniform.content),
+                         ("终年起雾的港口城市", "黑色短发的少女", "深蓝色水手服"))
+        self.assertFalse(Setting.objects.filter(title__in=["只改了行", "对话自己的"]).exists())
+        for entry in (place, lin, uniform):
+            self.assertEqual((entry.positive, entry.negative, entry.prose), ([], [], ""))
+            self.assertTrue(entry.lines_stale, entry)
+        due = library_lines.stale()
+        for entry in (place, lin, uniform):
+            self.assertIn(entry, due)
+
+    def test_an_edit_that_gives_the_tags_still_counts_as_filled(self):
+        from core.services import proposals
+        p = LibraryProposal.objects.create(conversation=self.conv, message=self.msg, folder=self.folder, payload={
+            "settings": [_entry("@雾港", note="终年起雾的港口城市", positive="harbor, fog", category="场景")],
+            "characters": []})
+        proposals.apply(p)
+        place = Setting.objects.get(folder=self.folder, title="雾港")
+        self.assertEqual(place.positive, ["harbor", "fog"])
+        self.assertFalse(place.lines_stale)
 
 
 class ProposalMergesAcrossFoldersTests(TestCase):
@@ -3701,32 +3936,42 @@ class ProposalMergesAcrossFoldersTests(TestCase):
 
     def test_a_new_costume_lands_on_the_character_that_already_exists(self):
         self._propose({
-            "characters": [{"name": "林", "variants": [
-                {"title": "便服", "content": "米色针织衫"},
-            ]}],
+            "characters": [_entry("林", variants=[
+                _entry("便服", note="米色针织衫", positive="beige knit sweater"),
+            ])],
         })
         self.assertEqual(Character.objects.filter(name="林").count(), 1)
         self.assertEqual(self.lin.variants.count(), 2)
-        self.assertEqual(self.lin.variants.get(title="便服").content, "米色针织衫")
+        made = self.lin.variants.get(title="便服")
+        self.assertEqual(made.content, "米色针织衫")
+        self.assertEqual(made.positive, ["beige knit sweater"])
 
     def test_a_setting_in_a_parent_folder_is_updated_not_duplicated(self):
         Setting.objects.create(folder=self.root, title="统一画风", content="厚涂", position=1)
-        self._propose({"settings": [{"title": "统一画风", "content": "厚涂，冷色"}]})
+        self._propose({"settings": [_entry("统一画风", note="厚涂，冷色", positive="impasto, cold colors",
+                                            category="画风")]})
         self.assertEqual(Setting.objects.filter(title="统一画风").count(), 1)
-        self.assertEqual(Setting.objects.get(title="统一画风").content, "厚涂，冷色")
+        made = Setting.objects.get(title="统一画风")
+        self.assertEqual(made.content, "厚涂，冷色")
+        self.assertEqual(made.positive, ["impasto", "cold colors"])
+        self.assertEqual(made.category, "画风")
 
     def test_the_nearest_one_wins_when_both_levels_have_it(self):
         """Reading resolves most-specific-last; writing has to agree with it."""
         near = Character.objects.create(folder=self.child, name="林", position=1)
-        self._propose({"characters": [{"name": "林", "description": "改了描述"}]})
+        self._propose({"characters": [_entry("林", note="改了描述")]})
         near.refresh_from_db()
         self.lin.refresh_from_db()
         self.assertEqual(near.description, "改了描述")
         self.assertEqual(self.lin.description, "银灰色长发")
 
     def test_a_genuinely_new_character_still_lands_in_this_folder(self):
-        self._propose({"characters": [{"name": "老陈", "description": "船长"}]})
-        self.assertEqual(Character.objects.get(name="老陈").folder, self.child)
+        self._propose({"characters": [_entry("老陈", note="船长", positive="1boy, captain")]})
+        made = Character.objects.get(name="老陈")
+        self.assertEqual(made.folder, self.child)
+        self.assertEqual(made.positive, ["1boy", "captain"])
+        # a character is drawn through a costume, so it never starts without one
+        self.assertEqual(made.variants.count(), 1)
 
 
 class HistoryWindowTests(TestCase):
@@ -3780,7 +4025,8 @@ class BranchCarriesTheDescriptionTests(TestCase):
                                status="done", content="画灯塔")
         src = Message.objects.create(
             conversation=conv, seq=2, role="assistant", status="done", kind="image",
-            content="好", draw_brief={"main": "灯塔与船头", "size": "portrait"},
+            content="好",
+            draw_brief={"description": "灯塔与船头", "expose": [], "inherits": "", "text": "", "size": "portrait"},
             nai_prompts={"base_prompt": "lighthouse", "size": "portrait", "n_images": 1},
             prompt_tokens=1234,
         )
@@ -3809,11 +4055,13 @@ class BriefInHistoryTests(TestCase):
     flipped, which is how a suite stops being believed.
     """
 
+    ANSWER_KEYS = {"reply", "settings", "characters", "edits", "draw"}
+
     def _conv(self):
         conv = Conversation.objects.create(title="回看画面描述")
         seq = 0
 
-        def turn(brief, tags):
+        def turn(description, size, tags, exposed=None):
             nonlocal seq
             seq += 1
             Message.objects.create(
@@ -3822,14 +4070,19 @@ class BriefInHistoryTests(TestCase):
             seq += 1
             Message.objects.create(
                 conversation=conv, seq=seq, role="assistant", status="done",
-                content="好", kind="image", draw_brief=brief, nai_prompts=tags,
+                content="好", kind="image",
+                draw_brief={"description": description, "expose": exposed or [], "inherits": "",
+                            "text": "", "size": size},
+                nai_prompts=tags,
+                prompt={"description": description, "exposed_keys": exposed or []} if exposed else None,
             )
             return seq
 
-        first = turn({"main": "灯塔与船头", "size": "portrait", "n_images": 1},
+        first = turn("灯塔与船头", "portrait",
                      {"base_prompt": "lighthouse", "size": "portrait", "n_images": 1})
-        second = turn({"main": "码头的雨", "size": "landscape", "n_images": 2},
-                      {"base_prompt": "rain", "size": "landscape", "n_images": 2})
+        second = turn("码头的雨", "landscape",
+                      {"base_prompt": "rain", "size": "landscape", "n_images": 2},
+                      exposed=["@画风", "林/便服"])
         return conv, first, second
 
     def _assistant_text(self, conv, before_seq=9999):
@@ -3876,11 +4129,11 @@ class BriefInHistoryTests(TestCase):
         Not a dial reading — the dial's SETTING, which is the thing a live
         conversation actually gets.
 
-        The lead model is writing the next brief, and the tags are the only
-        record of what the last few briefs turned into: a scene it described
-        three turns ago and one it described now differ in ways that show up
-        nowhere else. On one turn's worth it was writing blind about
-        everything before that.
+        The lead model is writing the next description, and the tags are the
+        only record of what the last few descriptions turned into: a scene it
+        described three turns ago and one it described now differ in ways
+        that show up nowhere else. On one turn's worth it was writing blind
+        about everything before that.
 
         The test beside this one patches the dial, so it passes at any setting
         and cannot notice this being turned back down.
@@ -3911,6 +4164,18 @@ class BriefInHistoryTests(TestCase):
         # and never in the assistant's mouth
         self.assertNotIn("lighthouse", self._assistant_text(conv))
 
+    def test_the_history_says_which_entries_a_drawing_exposed(self):
+        """
+        What a later picture inherits when it continues this one, said in the
+        app's note beside the tags, by key as the lead must write them.
+        """
+        conv, _, _ = self._conv()
+        said = self._app_text(conv)
+        self.assertIn(wording.APP_NOTE_EXPOSED.format(keys="@画风、林/便服"), said)
+        # a drawing that exposed nothing says nothing about it
+        head = wording.APP_NOTE_EXPOSED.split("{keys}")[0]
+        self.assertEqual(said.count(head), 1)
+
     def test_the_assistant_turn_is_the_object_it_returned(self):
         """
         Verbatim, and parseable as what it is: five of fifty-eight measured
@@ -3925,9 +4190,10 @@ class BriefInHistoryTests(TestCase):
         self.assertEqual(len(turns), 2)
         for said in turns:
             got = json.loads(said)
-            self.assertEqual(set(got), {"reply", "draw", "edits"})
+            self.assertEqual(set(got), self.ANSWER_KEYS)
             self.assertEqual(got["reply"], "好")
-        self.assertEqual(json.loads(turns[-1])["draw"]["main"], "码头的雨")
+        self.assertEqual(json.loads(turns[-1])["draw"]["description"], "码头的雨")
+        self.assertEqual(json.loads(turns[-1])["draw"]["expose"], ["@画风", "林/便服"])
 
     def test_the_library_edits_it_proposed_come_back_with_it(self):
         """So it can see what it has already suggested, and not suggest it again."""
@@ -3937,12 +4203,30 @@ class BriefInHistoryTests(TestCase):
         Message.objects.create(
             conversation=conv, seq=2, role="assistant", status="done", content="记下了",
             model_raw={"reply": "记下了",
-                       "edits": _project({"settings": [{"title": "黄昏之城", "content": "永远停在黄昏"}],
+                       "edits": _project({"settings": [_entry("黄昏之城", note="永远停在黄昏", category="场景")],
                                           "characters": []})},
         )
         said = [m["content"] for m in pipeline.build_history(conv, before_seq=9999)
                 if m["role"] == "assistant"][0]
-        self.assertEqual(json.loads(said)["edits"]["settings"][0]["title"], "黄昏之城")
+        self.assertEqual(json.loads(said)["edits"]["settings"][0]["key"], library.PROJECT_PREFIX + "黄昏之城")
+
+    def test_the_entries_it_wrote_come_back_with_it(self):
+        """The conversation's own entries, as it wrote them: what it has
+        already settled, so it names them instead of writing them again."""
+        conv = Conversation.objects.create(title="带着条目")
+        Message.objects.create(conversation=conv, seq=1, role="user", status="done",
+                               content="记一下黄昏")
+        Message.objects.create(
+            conversation=conv, seq=2, role="assistant", status="done", content="记下了",
+            model_raw={"reply": "记下了",
+                       "settings": [_entry("黄昏", note="傍晚", positive="sunset", category="光")],
+                       "characters": [_entry("林", note="银发", positive="silver hair", variants=[])]},
+        )
+        said = json.loads([m["content"] for m in pipeline.build_history(conv, before_seq=9999)
+                           if m["role"] == "assistant"][0])
+        self.assertEqual(said["settings"][0]["key"], "黄昏")
+        self.assertEqual(said["settings"][0]["positive"], "sunset")
+        self.assertEqual(said["characters"][0]["key"], "林")
 
     def test_a_turn_that_drew_nothing_says_so_the_way_the_schema_does(self):
         conv = Conversation.objects.create(title="没画图")
@@ -3952,14 +4236,18 @@ class BriefInHistoryTests(TestCase):
                                content="好啊")
         said = [m["content"] for m in pipeline.build_history(conv, before_seq=9999)
                 if m["role"] == "assistant"][0]
-        self.assertIsNone(json.loads(said)["draw"])
+        got = json.loads(said)
+        self.assertIsNone(got["draw"])
+        self.assertIsNone(got["edits"])
+        self.assertEqual(got["settings"], [])
 
     def test_a_drawing_gets_a_name_and_keeps_it(self):
         """
-        One name for one drawing — the brief, the tags made from it, and the
-        pictures that came back. A reflection round comes back through here
-        with new tags and it is the same drawing, so renaming it there would
-        rename the thing the user is pointing at while they look at it.
+        One name for one drawing — the description, the tags made from it,
+        and the pictures that came back. A reflection round comes back
+        through here with new tags and it is the same drawing, so renaming
+        it there would rename the thing the user is pointing at while they
+        look at it.
         """
         conv = Conversation.objects.create(title="编号")
         msg = Message.objects.create(conversation=conv, seq=1, role="assistant",
@@ -4102,10 +4390,10 @@ class BriefInHistoryTests(TestCase):
             if m["role"] != "assistant":
                 continue
             got = json.loads(m["content"])   # nothing appended to it, ever
-            self.assertEqual(set(got), {"reply", "draw", "edits"})
+            self.assertEqual(set(got), self.ANSWER_KEYS)
         self.assertIn(wording.SYSTEM_NOTE_OPEN, self._app_text(conv))
 
-    def test_branching_early_picks_the_brief_that_was_last_back_then(self):
+    def test_branching_early_picks_the_description_that_was_last_back_then(self):
         conv, first, _ = self._conv()
         # a branch cut right after the first drawing turn only sees seq <= first
         text = " ".join(
@@ -4115,23 +4403,13 @@ class BriefInHistoryTests(TestCase):
         self.assertIn("灯塔与船头", text)
         self.assertNotIn("码头的雨", text)
 
-    def test_a_turn_that_drew_nothing_carries_no_brief(self):
-        conv = Conversation.objects.create(title="没画")
-        Message.objects.create(conversation=conv, seq=1, role="user", status="done", content="聊聊")
-        Message.objects.create(conversation=conv, seq=2, role="assistant", status="done", content="好啊")
-        text = " ".join(
-            m["content"] for m in pipeline.build_history(conv, before_seq=9999)
-            if m["role"] == "assistant"
-        )
-        self.assertNotIn("画面描述", text)
-
-    def test_the_brief_is_kept_on_every_row_either_way(self):
+    def test_the_description_is_kept_on_every_row_either_way(self):
         conv, first, second = self._conv()
         briefs = list(
             conv.messages.filter(role="assistant").order_by("seq")
             .values_list("draw_brief", flat=True)
         )
-        self.assertEqual([b["main"] for b in briefs], ["灯塔与船头", "码头的雨"])
+        self.assertEqual([b["description"] for b in briefs], ["灯塔与船头", "码头的雨"])
 
 
 class NoopProposalTests(TestCase):
@@ -4144,13 +4422,15 @@ class NoopProposalTests(TestCase):
     def setUp(self):
         self.folder = Folder.objects.create(name="项目", position=0)
         Setting.objects.create(
-            folder=self.folder, title="画风", content="厚涂，冷色调。", position=1
+            folder=self.folder, title="画风", content="厚涂，冷色调。", position=1,
+            positive=["impasto", "cold colors"], category="画风",
         )
         self.char = Character.objects.create(
-            folder=self.folder, name="林", description="银发，紫眼。", position=1
+            folder=self.folder, name="林", description="银发，紫眼。", position=1,
+            positive=["silver hair", "purple eyes"],
         )
         CharacterVariant.objects.create(
-            character=self.char, title="制服", content="藏青外套。", position=1
+            character=self.char, title="制服", content="藏青外套。", position=1, positive=["navy jacket"],
         )
         self.conv = Conversation.objects.create(title="c", folder=self.folder)
         self.msg = Message.objects.create(
@@ -4158,20 +4438,17 @@ class NoopProposalTests(TestCase):
         )
 
     def _record(self, edits):
-        pipeline._record_proposal(self.conv, self.msg, edits)
+        pipeline._write_library(self.conv, self.msg, {**FAKE_TEXT_RESULT, "edits": _project(edits)})
         return LibraryProposal.objects.filter(message=self.msg).first()
 
     def test_identical_content_records_nothing(self):
         self.assertIsNone(
             self._record(
                 {
-                    "settings": [{"title": "画风", "content": "厚涂，冷色调。"}],
+                    "settings": [_entry("画风", note="厚涂，冷色调。", positive="impasto, cold colors", category="画风")],
                     "characters": [
-                        {
-                            "name": "林",
-                            "description": "",
-                            "variants": [{"title": "制服", "content": "藏青外套。"}],
-                        }
+                        _entry("林", note="", positive="silver hair, purple eyes",
+                               variants=[_entry("制服", note="藏青外套。", positive="navy jacket")])
                     ],
                 }
             )
@@ -4182,14 +4459,10 @@ class NoopProposalTests(TestCase):
             {
                 "settings": [],
                 "characters": [
-                    {
-                        "name": "林",
-                        "description": "",
-                        "variants": [
-                            {"title": "制服", "content": "藏青外套。"},
-                            {"title": "便装", "content": "米色针织衫。"},
-                        ],
-                    }
+                    _entry("林", note="", positive="silver hair, purple eyes", variants=[
+                        _entry("制服", note="藏青外套。", positive="navy jacket"),
+                        _entry("便装", note="米色针织衫。", positive="beige sweater"),
+                    ])
                 ],
             }
         )
@@ -4198,41 +4471,47 @@ class NoopProposalTests(TestCase):
         self.assertEqual(len(chars), 1)
         # only the new costume is left for the user to look at
         self.assertEqual(
-            [v["title"] for v in chars[0]["variants"]], ["便装"]
+            [v["key"] for v in chars[0]["variants"]], ["便装"]
         )
 
-    def test_blank_description_is_not_a_change(self):
+    def test_a_blank_note_is_not_a_change(self):
         self.assertIsNone(
             self._record(
-                {"settings": [], "characters": [{"name": "林", "description": "", "variants": []}]}
+                {"settings": [], "characters": [_entry("林", note="", positive="silver hair, purple eyes", variants=[])]}
             )
         )
 
-    def test_new_setting_survives(self):
+    def test_a_changed_tag_list_is_a_change(self):
         prop = self._record(
-            {"settings": [{"title": "世界观", "content": "海上城邦。"}], "characters": []}
+            {"settings": [_entry("画风", note="厚涂，冷色调。", positive="impasto", category="画风")], "characters": []}
         )
         assert prop is not None
-        self.assertEqual(prop.payload["settings"][0]["title"], "世界观")
+        self.assertEqual(prop.payload["settings"][0]["positive"], "impasto")
 
-    def test_conversation_without_folder_records_it_and_says_it_cannot_apply(self):
+    def test_new_setting_survives(self):
+        prop = self._record(
+            {"settings": [_entry("世界观", note="海上城邦。", positive="floating city", category="场景")],
+             "characters": []}
+        )
+        assert prop is not None
+        self.assertEqual(prop.payload["settings"][0]["key"], library.PROJECT_PREFIX + "世界观")
+
+    def test_a_conversation_without_a_folder_writes_the_edit_into_its_own_layer(self):
         """
-        There is still nowhere to write it — but that is something to say, not
-        something to do quietly. The row exists so the transcript can show what
-        the model asked for and why it cannot be written; resolve refuses the
-        approval separately. This test used to assert the opposite, which is
-        how the silence survived being noticed twice.
+        There is no project to write it to, and the conversation has a layer
+        of its own: the edit lands there, as the lead's own entry, and no
+        card is raised.
         """
         loose = Conversation.objects.create(title="无项目")
         msg = Message.objects.create(
             conversation=loose, seq=1, role="assistant", status="done"
         )
-        pipeline._record_proposal(
-            loose, msg, {"settings": [{"title": "x", "content": "y"}], "characters": []}
+        pipeline._write_library(
+            loose, msg, {**FAKE_TEXT_RESULT,
+                         "edits": _project({"settings": [_entry("x", note="y", category="")], "characters": []})}
         )
-        prop = LibraryProposal.objects.filter(message=msg).first()
-        assert prop is not None
-        self.assertIsNone(prop.folder)
+        self.assertFalse(LibraryProposal.objects.filter(message=msg).exists())
+        self.assertEqual(Setting.objects.get(title="x").conversation_id, loose.id)
 
 
 @override_settings(**TEST_CREDS)
@@ -4324,7 +4603,7 @@ class VariantDeletionTests(TestCase):
     """
     A costume can be removed on its own.
 
-    "Only ever edited, never deleted" is a rule about the model — _apply_proposal
+    "Only ever edited, never deleted" is a rule about the model — proposals.apply
     has no way to take anything out of the library. It had been written onto the
     endpoint as though it bound the user too, so the only way to drop one
     costume was to delete the character wearing it.
@@ -4363,25 +4642,25 @@ class VariantDeletionTests(TestCase):
         msg = Message.objects.create(
             conversation=conv, seq=1, role="assistant", status="done", content="好",
             selection_snapshot={
-                "settings": [],
-                "characters": [{"name": "林", "variants": [{"title": "便服", "content": "米色针织衫"}]}],
+                "entries": [{"key": "林/便服", "kind": "variant", "character": "林", "note": "米色针织衫"}],
+                "keys": ["@林/便服"],
             },
         )
         self.c.delete(f"/api/variants/{self.b.id}")
         msg.refresh_from_db()
-        self.assertEqual(
-            (msg.selection_snapshot or {})["characters"][0]["variants"][0]["title"], "便服"
-        )
+        self.assertEqual((msg.selection_snapshot or {})["keys"], ["@林/便服"])
+        self.assertEqual((msg.selection_snapshot or {})["entries"][0]["note"], "米色针织衫")
 
     def test_editing_still_works(self):
         r = self.c.patch(
             f"/api/variants/{self.a.id}",
-            json.dumps({"title": "夜航制服（旧）"}),
+            json.dumps({"title": "夜航制服（旧）", "positive": "navy coat, brass buttons"}),
             content_type="application/json",
         )
         self.assertEqual(r.status_code, 200)
         self.a.refresh_from_db()
         self.assertEqual(self.a.title, "夜航制服（旧）")
+        self.assertEqual(self.a.positive, ["navy coat", "brass buttons"])
 
     def test_the_model_still_cannot_delete_anything(self):
         """
@@ -4397,7 +4676,609 @@ class VariantDeletionTests(TestCase):
                 seq=1, role="assistant", status="done",
             ),
             folder=self.folder,
-            payload={"characters": [{"name": "林", "variants": []}]},
+            payload={"characters": [_entry("林", variants=[])]},
         )
         _apply_proposal(proposal)
         self.assertEqual(self.character.variants.count(), 2)
+
+
+class EntriesAreWrittenByKeyTests(TestCase):
+    """
+    The conversation's own layer is the lead's notebook: it writes an entry
+    whole -- note, tags, prose -- and writing the same key again is an
+    override of the same row. Nothing here waits for approval.
+    """
+
+    def setUp(self):
+        self.conv = Conversation.objects.create(title="c")
+
+    def test_a_new_entry_is_written_whole_switched_on_and_dated_to_the_turn(self):
+        done = library.write_conversation_entries(
+            self.conv, 4,
+            [_entry("黄昏", note="傍晚", positive="sunset, warm lighting", negative="night",
+                    prose="The sun is setting.", category="光")],
+            [],
+        )
+        s = Setting.objects.get(conversation=self.conv, title="黄昏")
+        self.assertEqual(s.content, "傍晚")
+        self.assertEqual(s.positive, ["sunset", "warm lighting"])
+        self.assertEqual(s.negative, ["night"])
+        self.assertEqual(s.prose, "The sun is setting.")
+        self.assertEqual(s.category, "光")
+        self.assertEqual(s.origin_seq, 4)
+        self.assertIsNone(s.folder_id)
+        self.assertIn(s.id, set(self.conv.selected_settings.values_list("id", flat=True)))
+        # a model wrote it, so the patrol has nothing to fill
+        self.assertFalse(s.lines_stale)
+        self.assertEqual(len(done), 1)
+        self.assertIn("黄昏", done[0])
+
+    def test_the_same_key_overrides_in_place(self):
+        library.write_conversation_entries(
+            self.conv, 2, [_entry("黄昏", note="傍晚", positive="sunset", category="光")], [])
+        first = Setting.objects.get(conversation=self.conv, title="黄昏")
+        # the user switched it off meanwhile
+        self.conv.selected_settings.remove(first)
+        library.write_conversation_entries(
+            self.conv, 5, [_entry("黄昏", note="深夜", positive="night, moonlight", category="光")], [])
+        self.assertEqual(Setting.objects.filter(conversation=self.conv, title="黄昏").count(), 1)
+        again = Setting.objects.get(conversation=self.conv, title="黄昏")
+        self.assertEqual(again.id, first.id)
+        self.assertEqual(again.content, "深夜")
+        self.assertEqual(again.positive, ["night", "moonlight"])
+        self.assertEqual(again.origin_seq, 5)
+        # the override comes before the selection: it is on again
+        self.assertIn(again.id, set(self.conv.selected_settings.values_list("id", flat=True)))
+
+    def test_an_override_with_a_blank_note_keeps_the_note(self):
+        library.write_conversation_entries(
+            self.conv, 2, [_entry("黄昏", note="傍晚", positive="sunset", category="光")], [])
+        library.write_conversation_entries(
+            self.conv, 3, [_entry("黄昏", note="", positive="sunset, dusk", category="光")], [])
+        again = Setting.objects.get(conversation=self.conv, title="黄昏")
+        self.assertEqual(again.content, "傍晚")
+        self.assertEqual(again.positive, ["sunset", "dusk"])
+
+    def test_a_character_comes_with_its_costumes_and_is_switched_on_through_them(self):
+        library.write_conversation_entries(
+            self.conv, 3, [],
+            [_entry("林", note="银发", positive="silver hair", negative="blue eyes", prose="She is calm.",
+                    variants=[_entry("便服", note="米色", positive="beige sweater")])],
+        )
+        c = Character.objects.get(conversation=self.conv, name="林")
+        self.assertEqual(c.positive, ["silver hair"])
+        self.assertEqual(c.negative, ["blue eyes"])
+        self.assertEqual(c.prose, "She is calm.")
+        self.assertEqual(c.origin_seq, 3)
+        v = c.variants.get(title="便服")
+        self.assertEqual(v.positive, ["beige sweater"])
+        self.assertEqual(v.origin_seq, 3)
+        self.assertEqual(list(self.conv.selected_variants.values_list("id", flat=True)), [v.id])
+        # the costume named under its character's key is the same costume
+        library.write_conversation_entries(
+            self.conv, 6, [],
+            [_entry("林", note="", positive="silver hair",
+                    variants=[_entry("林" + library.VARIANT_SEP + "便服", positive="beige sweater, scarf")])],
+        )
+        c.refresh_from_db()
+        self.assertEqual(c.variants.count(), 1)
+        v.refresh_from_db()
+        self.assertEqual(v.positive, ["beige sweater", "scarf"])
+        self.assertEqual(v.origin_seq, 6)
+
+    def test_a_character_without_a_costume_gets_the_default_one_switched_on(self):
+        library.write_conversation_entries(
+            self.conv, 3, [], [_entry("陈", note="船长", positive="1boy", variants=[])])
+        c = Character.objects.get(conversation=self.conv, name="陈")
+        self.assertEqual(c.variants.count(), 1)
+        self.assertEqual(list(self.conv.selected_variants.values_list("character_id", flat=True)), [c.id])
+
+    def test_a_costume_written_later_replaces_the_empty_stand_in(self):
+        """A character the lead wrote without a costume got the app's empty
+        stand-in; once the lead writes a real one, the stand-in goes -- an
+        empty costume in every list is noise. One the person has filled in
+        stays."""
+        library.write_conversation_entries(self.conv, 2, [], [_entry("陈", positive="1boy", variants=[])])
+        c = Character.objects.get(conversation=self.conv, name="陈")
+        stand_in = c.variants.get()
+        library.write_conversation_entries(
+            self.conv, 3, [], [_entry("陈", positive="1boy", variants=[_entry("日常装", positive="grey hoodie")])])
+        self.assertEqual(list(c.variants.values_list("title", flat=True)), ["日常装"])
+        self.assertFalse(CharacterVariant.objects.filter(id=stand_in.id).exists())
+        self.assertEqual(list(self.conv.selected_variants.values_list("title", flat=True)), ["日常装"])
+
+        library.write_conversation_entries(self.conv, 4, [], [_entry("吴", positive="1boy", variants=[])])
+        wu = Character.objects.get(conversation=self.conv, name="吴")
+        kept = wu.variants.get()
+        kept.content = "用户自己写的"
+        kept.save()
+        library.write_conversation_entries(
+            self.conv, 5, [], [_entry("吴", positive="1boy", variants=[_entry("制服", positive="uniform")])])
+        self.assertEqual(sorted(wu.variants.values_list("title", flat=True)), sorted([kept.title, "制服"]))
+
+    def test_a_key_with_the_project_prefix_still_lands_in_the_conversation(self):
+        library.write_conversation_entries(
+            self.conv, 2, [_entry(library.PROJECT_PREFIX + "黄昏", note="傍晚", positive="sunset", category="光")], [])
+        self.assertTrue(Setting.objects.filter(conversation=self.conv, title="黄昏").exists())
+        self.assertFalse(Setting.objects.filter(title__startswith=library.PROJECT_PREFIX).exists())
+
+    def test_the_lead_reads_its_own_entries_back_with_their_origin(self):
+        folder = Folder.objects.create(name="项目")
+        conv = Conversation.objects.create(title="c", folder=folder)
+        style = Setting.objects.create(folder=folder, title="画风", content="厚涂", positive=["impasto"],
+                                       category="画风", position=1)
+        conv.selected_settings.add(style)
+        library.write_conversation_entries(
+            conv, 4, [_entry("黄昏", note="傍晚", positive="sunset, warm lighting", prose="Dusk.", category="光")], [])
+        text = library.as_prompt_text(library.selection_for(conv))
+        self.assertIn(wording.LIBRARY_IN_PROJECT.format(project="项目"), text)
+        # written at a turn that drew nothing: no drawing id to name, and never a message number
+        self.assertIn("◆ 黄昏（" + wording.ENTRY_KIND_SETTING + "·光，" + wording.ENTRY_FROM_LEAD_NO_DRAW + "）", text)
+        self.assertNotIn("4", text.split("◆ 黄昏")[1].split("\n")[0])
+        self.assertIn(wording.ENTRY_NOTE_LABEL + "：傍晚", text)
+        self.assertIn(wording.ENTRY_POSITIVE_LABEL + "：sunset, warm lighting", text)
+        self.assertIn(wording.ENTRY_PROSE_LABEL + "：Dusk.", text)
+        self.assertIn("◆ " + library.PROJECT_PREFIX + "画风（" + wording.ENTRY_KIND_SETTING + "·画风，"
+                      + wording.ENTRY_FROM_PROJECT + "）", text)
+        # a user-made entry says so
+        made = Setting.objects.create(conversation=conv, folder=None, title="雨夜", content="雨", position=9)
+        conv.selected_settings.add(made)
+        text = library.as_prompt_text(library.selection_for(conv))
+        self.assertIn("◆ 雨夜（" + wording.ENTRY_KIND_SETTING + "，" + wording.ENTRY_FROM_USER + "）", text)
+
+
+class ExposureTests(TestCase):
+    """
+    The lead's exposure list, resolved: which entries the drawing model gets,
+    in full, and what the row remembers about it.
+    """
+
+    def setUp(self):
+        self.folder = Folder.objects.create(name="项目")
+        self.conv = Conversation.objects.create(title="c", folder=self.folder)
+        self.style = Setting.objects.create(folder=self.folder, title="画风", content="厚涂", category="画风",
+                                            positive=["impasto"], position=1)
+        self.lin = Character.objects.create(folder=self.folder, name="林", description="银发",
+                                            positive=["silver hair"], position=1)
+        self.uniform = CharacterVariant.objects.create(character=self.lin, title="制服", content="藏青",
+                                                       positive=["navy jacket"], position=1)
+        self.casual = CharacterVariant.objects.create(character=self.lin, title="便服",
+                                                      positive=["beige sweater"], position=2)
+        library.write_conversation_entries(self.conv, 2, [_entry("黄昏", positive="sunset", category="光")], [])
+        # the person switches the project's entries on: only then are they the lead's
+        self.conv.selected_settings.add(self.style)
+        self.conv.selected_variants.add(self.uniform, self.casual)
+
+    def _resolve(self, keys, **kw) -> library.Exposure:
+        return library.resolve_exposure(self.conv, keys, **kw)
+
+    def test_a_plain_key_is_the_conversations_and_a_prefixed_key_the_projects(self):
+        ex = self._resolve(["黄昏", library.PROJECT_PREFIX + "画风"])
+        self.assertEqual([(e["key"], e["layer"]) for e in ex.entries],
+                         [("黄昏", "conversation"), ("画风", "project")])
+        self.assertEqual(ex.keys, ["黄昏", "@画风"])
+        self.assertEqual(ex.unknown, [])
+        self.assertEqual(ex.entries[0]["origin_seq"], 2)
+        self.assertEqual(ex.entries[1]["category"], "画风")
+
+    def test_a_plain_key_only_the_project_has_is_the_projects(self):
+        ex = self._resolve(["画风"])
+        self.assertEqual([e["layer"] for e in ex.entries], ["project"])
+        self.assertEqual(ex.keys, ["@画风"])
+
+    def test_a_costume_brings_its_character_before_it(self):
+        ex = self._resolve(["林/便服"])
+        self.assertEqual(ex.keys, ["@林", "@林/便服"])
+        self.assertEqual([e["kind"] for e in ex.entries], ["character", "variant"])
+        self.assertEqual(ex.entries[1]["character"], "林")
+        self.assertEqual(ex.entries[1]["positive"], ["beige sweater"])
+
+    def test_a_character_alone_exposes_only_itself(self):
+        ex = self._resolve(["@林"])
+        self.assertEqual(ex.keys, ["@林"])
+
+    def test_what_the_person_has_not_switched_on_is_not_found_and_stays_off(self):
+        """The lead sees only what is switched on: an entry left off is not
+        found, whatever its key, and naming it switches nothing on."""
+        self.conv.selected_settings.remove(self.style)
+        self.conv.selected_variants.remove(self.casual)
+        ex = self._resolve(["@画风", "画风", "林/便服", "@林/制服"])
+        self.assertEqual(ex.keys, ["@林", "@林/制服"])
+        self.assertEqual(ex.unknown, ["@画风", "画风", "林/便服"])
+        self.assertFalse(self.conv.selected_settings.filter(id=self.style.id).exists())
+        self.assertFalse(self.conv.selected_variants.filter(id=self.casual.id).exists())
+        self.conv.selected_variants.remove(self.uniform)
+        ex = self._resolve(["@林"])
+        self.assertEqual((ex.keys, ex.unknown), ([], ["@林"]), "a character with no variant on is off")
+
+    def test_an_inherited_list_is_added_to_and_taken_from(self):
+        ex = self._resolve(["-@画风", "黄昏"], inherited=["@画风", "@林/制服"])
+        self.assertEqual(ex.keys, ["@林", "@林/制服", "黄昏"])
+        self.assertEqual(ex.unknown, [])
+
+    def test_a_removal_of_a_key_not_in_the_list_is_nothing(self):
+        ex = self._resolve(["-黄昏", "@画风"])
+        self.assertEqual(ex.keys, ["@画风"])
+        self.assertEqual(ex.unknown, [])
+
+    def test_a_prefix_on_a_key_only_the_conversation_has_is_forgiven(self):
+        """「@黄昏」 when only the conversation has 黄昏 is that entry: the
+        prefix says which layer to prefer, it is not a reason to find
+        nothing. Taking a key out forgives the same way."""
+        ex = self._resolve([library.PROJECT_PREFIX + "黄昏"])
+        self.assertEqual([(e["key"], e["layer"]) for e in ex.entries], [("黄昏", "conversation")])
+        self.assertEqual(ex.keys, ["黄昏"])
+        self.assertEqual(ex.unknown, [])
+        ex = self._resolve(["-" + library.PROJECT_PREFIX + "黄昏", "-画风"], inherited=["黄昏", "@画风", "@林/制服"])
+        self.assertEqual(ex.keys, ["@林", "@林/制服"])
+        self.assertEqual(ex.unknown, [])
+
+    def test_an_unknown_key_is_reported_not_invented(self):
+        ex = self._resolve(["雪夜", "林/泳装"])
+        self.assertEqual(ex.unknown, ["雪夜", "林/泳装"])
+        # the character the unknown costume belongs to is still there
+        self.assertEqual(ex.keys, ["@林"])
+
+    def test_this_turns_project_edit_is_exposed_in_its_edited_form(self):
+        overlay = library.overlay_from_edits(_project({
+            "settings": [_entry("画风", note="厚涂，冷色", positive="impasto, cold colors", category="画风")],
+            "characters": [_entry("林", note="", positive="silver hair, purple eyes",
+                                  variants=[_entry("制服", positive="navy jacket, brass buttons")])],
+        }))
+        self.assertEqual(set(overlay), {"画风", "林", "林/制服"})
+        ex = self._resolve(["@画风", "@林/制服"], overlay=overlay)
+        style, lin, uniform = ex.entries
+        self.assertEqual(style["positive"], ["impasto", "cold colors"])
+        self.assertEqual(style["note"], "厚涂，冷色")
+        self.assertTrue(style.get("edited_this_turn"))
+        self.assertEqual(lin["positive"], ["silver hair", "purple eyes"])
+        self.assertEqual(lin["note"], "银发")   # the edit left it blank, so the note stands
+        self.assertEqual(uniform["positive"], ["navy jacket", "brass buttons"])
+        # the rows themselves wait for approval
+        self.style.refresh_from_db()
+        self.assertEqual(self.style.positive, ["impasto"])
+
+    def test_a_conversation_entry_is_never_overlaid(self):
+        ex = self._resolve(["黄昏"], overlay={"黄昏": {"positive": "night"}})
+        self.assertEqual(ex.entries[0]["positive"], ["sunset"])
+        self.assertNotIn("edited_this_turn", ex.entries[0])
+
+    def test_a_conversation_entry_shadows_the_projects_of_the_same_key(self):
+        library.write_conversation_entries(self.conv, 3, [_entry("画风", positive="sketch", category="画风")], [])
+        own = self._resolve(["画风"]).entries[0]
+        self.assertEqual((own["layer"], own["positive"]), ("conversation", ["sketch"]))
+        project = self._resolve(["@画风"]).entries[0]
+        self.assertEqual((project["layer"], project["positive"]), ("project", ["impasto"]))
+
+    def test_the_drawing_model_reads_the_exposed_entries_in_full_and_nothing_about_layers(self):
+        text = library.exposure_text(self._resolve(["@画风", "林/制服", "黄昏"]).entries)
+        self.assertIn("◆ 画风（" + wording.ENTRY_KIND_SETTING + "·画风）", text)
+        self.assertIn("◆ 林（" + wording.ENTRY_KIND_CHARACTER + "）", text)
+        self.assertIn("◆ 林/制服（" + wording.ENTRY_KIND_VARIANT + "）", text)
+        self.assertIn(wording.ENTRY_NOTE_LABEL + "：厚涂", text)
+        self.assertIn(wording.ENTRY_POSITIVE_LABEL + "：impasto", text)
+        self.assertIn(wording.ENTRY_POSITIVE_LABEL + "：navy jacket", text)
+        self.assertNotIn(library.PROJECT_PREFIX, text)
+        for mark in (wording.ENTRY_FROM_PROJECT, wording.ENTRY_FROM_USER, wording.ENTRY_FROM_LEAD.split("{")[0],
+                     wording.ENTRY_FROM_LEAD_NO_DRAW):
+            self.assertNotIn(mark, text)
+
+    def test_what_a_drawing_exposed_is_read_off_its_row(self):
+        self.assertEqual(library.exposed_keys_of(Message(prompt={"exposed_keys": ["@画风", "黄昏"]})),
+                         ["@画风", "黄昏"])
+        self.assertEqual(library.exposed_keys_of(Message(prompt=None)), [])
+        self.assertEqual(library.exposed_keys_of(Message(prompt={"slots": {}})), [])
+        self.assertEqual(library.exposed_keys_of(None), [])
+
+    def test_the_snapshot_is_a_copy(self):
+        ex = self._resolve(["@画风"])
+        snap = library.snapshot(ex)
+        assert snap is not None
+        self.assertEqual(snap["keys"], ["@画风"])
+        Setting.objects.filter(id=self.style.id).update(positive=["sketch"], content="改了")
+        self.assertEqual(snap["entries"][0]["positive"], ["impasto"])
+        self.assertEqual(snap["entries"][0]["note"], "厚涂")
+        self.assertIsNone(library.snapshot(library.Exposure()))
+
+
+class AssemblyTests(TestCase):
+    """
+    The prompt NovelAI gets is assembled by the app out of the exposed entries
+    and the drawing model's answer. The drawing model says what this picture
+    does with each entry; it never writes the prompt.
+    """
+
+    STYLE = {"id": "1", "kind": "setting", "key": "画风", "layer": "project", "shown_key": "@画风",
+             "note": "厚涂", "positive": ["oil painting (medium)", "impasto"], "negative": ["sketch"],
+             "prose": "Thick visible brushstrokes.", "origin_seq": None, "category": "画风"}
+    LIGHT = {"id": "2", "kind": "setting", "key": "光", "layer": "conversation", "shown_key": "光",
+             "note": "逆光", "positive": ["sunset", "warm lighting"], "negative": [],
+             "prose": "The light comes from behind her.", "origin_seq": 3, "category": "光"}
+    LIN = {"id": "3", "kind": "character", "key": "林", "layer": "project", "shown_key": "@林",
+           "note": "银发", "positive": ["1girl", "silver hair", "purple eyes"], "negative": ["blue eyes"],
+           "prose": "She has a calm face.", "origin_seq": None}
+    UNIFORM = {"id": "4", "kind": "variant", "key": "林/制服", "layer": "project", "shown_key": "@林/制服",
+               "character": "林", "note": "藏青", "positive": ["navy jacket", "brass buttons"],
+               "negative": ["skirt"], "prose": "", "origin_seq": None}
+    CHEN = {"id": "5", "kind": "character", "key": "陈", "layer": "project", "shown_key": "@陈",
+            "note": "船长", "positive": ["1boy", "captain"], "negative": [], "prose": "", "origin_seq": None}
+
+    def _answer(self, **over) -> dict:
+        return assemble.clean_answer({
+            "positive": "solo, cowboy shot, looking at viewer", "negative": "lowres",
+            "prose": "She stands at the door.",
+            "subjects": [{"key": "林", "center_x": 0.3, "center_y": 0.6}], "size": "portrait",
+            **over,
+        })
+
+    def test_the_base_prompt_is_the_pictures_tags_the_settings_style_first_the_quality_words_then_prose(self):
+        made = assemble.assemble([self.LIGHT, self.STYLE, self.LIN, self.UNIFORM], self._answer())
+        tags = ("solo, cowboy shot, looking at viewer, oil painting (medium), impasto, sunset, warm lighting, "
+                + novelai.QUALITY_WORDS + ", " + novelai.NO_TEXT_WORD)
+        self.assertEqual(
+            made["nai_prompts"]["base_prompt"],
+            tags + ", Thick visible brushstrokes. The light comes from behind her. She stands at the door.",
+        )
+        self.assertEqual(made["nai_prompts"]["size"], "portrait")
+
+    def test_the_pictures_text_goes_last_and_no_text_is_not_said(self):
+        made = assemble.assemble([self.STYLE], self._answer(), text="Midnight Pages")
+        base = made["nai_prompts"]["base_prompt"]
+        self.assertTrue(base.endswith(". " + assemble.TEXT_PREFIX + "Midnight Pages"), base)
+        self.assertIn(novelai.QUALITY_WORDS, base)
+        self.assertNotIn(novelai.NO_TEXT_WORD, base)
+
+    def test_each_character_is_its_entry_then_its_costume_with_a_negative_of_its_own(self):
+        made = assemble.assemble([self.LIGHT, self.STYLE, self.LIN, self.UNIFORM], self._answer())
+        chars = made["nai_prompts"]["character_prompts"]
+        self.assertEqual(len(chars), 1)
+        self.assertEqual(chars[0]["key"], "林")
+        self.assertEqual(chars[0]["prompt"],
+                         "1girl, silver hair, purple eyes, navy jacket, brass buttons, She has a calm face.")
+        self.assertEqual(chars[0]["negative"], "blue eyes, skirt")
+        self.assertEqual((chars[0]["center_x"], chars[0]["center_y"]), (0.3, 0.6))
+        # the whole picture's negative: the settings', the picture's, the default, each once
+        self.assertEqual(made["nai_prompts"]["negative_prompt"], "sketch, " + novelai.DEFAULT_NEGATIVE)
+
+    def test_this_pictures_changes_to_an_entry_are_for_this_picture_only(self):
+        answer = self._answer(entries=[
+            {"key": "林/制服", "use": True, "add_positive": "rolled sleeves", "remove_positive": "brass buttons",
+             "add_negative": "hat", "remove_negative": "skirt", "add_prose": "", "remove_prose": ""},
+            {"key": "林", "use": True, "add_positive": "smile", "remove_positive": "",
+             "add_negative": "", "remove_negative": "", "add_prose": "She smiles.", "remove_prose": "She has a calm face."},
+        ])
+        made = assemble.assemble([self.LIN, self.UNIFORM], answer)
+        chars = made["nai_prompts"]["character_prompts"]
+        self.assertEqual(chars[0]["prompt"],
+                         "1girl, silver hair, purple eyes, smile, navy jacket, rolled sleeves, She smiles.")
+        self.assertEqual(chars[0]["negative"], "blue eyes, hat")
+        # the record says what each entry came to
+        by_key = {r["key"]: r for r in made["assembly"]}
+        self.assertEqual(by_key["林/制服"]["positive"], ["navy jacket", "rolled sleeves"])
+        self.assertEqual(by_key["林/制服"]["negative"], ["hat"])
+        self.assertEqual(by_key["林"]["prose"], "She smiles.")
+        self.assertTrue(by_key["林"]["used"])
+        # and the entries handed in are untouched: nothing is written back
+        self.assertEqual(self.UNIFORM["positive"], ["navy jacket", "brass buttons"])
+        self.assertEqual(self.LIN["prose"], "She has a calm face.")
+
+    def test_an_entry_the_picture_does_not_use_is_left_out_but_recorded(self):
+        answer = self._answer(entries=[{"key": "光", "use": False}])
+        made = assemble.assemble([self.LIGHT, self.STYLE, self.LIN], answer)
+        base = made["nai_prompts"]["base_prompt"]
+        self.assertNotIn("sunset", base)
+        self.assertNotIn("behind her", base)
+        self.assertIn("impasto", base)
+        light = next(r for r in made["assembly"] if r["key"] == "光")
+        self.assertFalse(light["used"])
+        self.assertEqual(light["positive"], ["sunset", "warm lighting"])
+
+    def test_subjects_order_the_characters_and_an_unlisted_one_still_goes(self):
+        answer = self._answer(subjects=[{"key": "陈", "center_x": None, "center_y": None}])
+        made = assemble.assemble([self.LIN, self.CHEN], answer)
+        chars = made["nai_prompts"]["character_prompts"]
+        self.assertEqual([c["key"] for c in chars], ["陈", "林"])
+        self.assertIsNone(chars[1]["center_x"])
+
+    def test_the_size_is_the_answers_then_the_leads_then_portrait(self):
+        self.assertEqual(assemble.assemble([], self._answer(size=""), size_hint="landscape")["nai_prompts"]["size"],
+                         "landscape")
+        self.assertEqual(assemble.assemble([], self._answer(size="square"), size_hint="landscape")["nai_prompts"]["size"],
+                         "square")
+        self.assertEqual(assemble.assemble([], self._answer(size=""))["nai_prompts"]["size"], "portrait")
+
+    def test_a_tag_said_twice_in_whatever_dressing_goes_out_once(self):
+        answer = self._answer(positive="Oil_Painting_(medium), solo")
+        base = assemble.assemble([self.STYLE], answer)["nai_prompts"]["base_prompt"]
+        self.assertEqual(base.lower().replace("_", " ").count("oil painting (medium)"), 1)
+        # a sentence said twice goes out once too
+        answer = self._answer(prose="Thick visible brushstrokes.")
+        base = assemble.assemble([self.STYLE], answer)["nai_prompts"]["base_prompt"]
+        self.assertEqual(base.count("Thick visible brushstrokes."), 1)
+
+    def test_each_characters_negative_reaches_novelai_beside_its_caption(self):
+        payload = novelai._build_payload(
+            "1girl, 1boy",
+            [{"key": "林", "prompt": "silver hair", "negative": "blue eyes", "center_x": 0.3, "center_y": 0.6},
+             {"key": "陈", "prompt": "captain", "negative": "", "center_x": None, "center_y": None}],
+            "lowres", "portrait", 1,
+        )
+        positive = payload["parameters"]["v4_prompt"]["caption"]["char_captions"]
+        negative = payload["parameters"]["v4_negative_prompt"]["caption"]["char_captions"]
+        self.assertEqual([c["char_caption"] for c in positive], ["silver hair", "captain"])
+        self.assertEqual([c["char_caption"] for c in negative], ["blue eyes", ""])
+        self.assertEqual([c["centers"] for c in negative], [c["centers"] for c in positive])
+
+    def test_the_lint_reports_separators_emptiness_and_foreign_script_only(self):
+        faults = assemble.lint({"base_prompt": "1girl,, solo",
+                                "character_prompts": [{"key": "林", "prompt": "银发"}, {"key": "陈", "prompt": ""}],
+                                "negative_prompt": ""})
+        self.assertIn("base: an empty item between commas", faults)
+        self.assertIn("character 林: not English", faults)
+        self.assertIn("character 陈: empty", faults)
+        self.assertEqual(assemble.lint(FAKE_NAI_PROMPTS), [])
+        # the text to render may be in any script
+        self.assertEqual(assemble.foreign({"base_prompt": "1girl. " + assemble.TEXT_PREFIX + "午夜",
+                                           "character_prompts": [], "negative_prompt": ""}), [])
+        self.assertEqual(assemble.foreign({"base_prompt": "少女", "character_prompts": [], "negative_prompt": ""}),
+                         ["base"])
+
+
+@override_settings(**TEST_CREDS)
+class SeedFollowsTests(TestCase):
+    """
+    What was not changed stays where it was: the first picture of a message
+    follows the previous drawing's main picture, and a picture that inherits
+    another follows that drawing's main picture. The rest of a batch, and
+    every 重绘, roll their own.
+    """
+
+    def setUp(self):
+        self.c = Client()
+        _login(self.c)
+        self.cid = self.c.post("/api/conversations", "{}", content_type="application/json").json()["id"]
+
+    def _turn(self, lead, n_images: str = "1", seeds=None, draw=None) -> tuple[Message, list]:
+        given = iter(seeds or [])
+        asked: list = []
+
+        def paint(*a, **kw):
+            asked.append(kw.get("seed"))
+            return _png_bytes(), next(given, 1)
+
+        with _Drawn(lead=lead, draw=draw, paint=paint):
+            self.c.post(f"/api/conversations/{self.cid}/messages", {"text": "画", "n_images": n_images})
+        return _assistant(self.cid), asked
+
+    def _exposing(self) -> dict:
+        return {**FAKE_IMAGE_RESULT,
+                "settings": [_entry("黄昏", positive="sunset", category="光")],
+                "draw": {**FAKE_IMAGE_RESULT["draw"], "expose": ["黄昏"]}}
+
+    def test_the_first_picture_of_a_conversation_rolls_its_own(self):
+        _, asked = self._turn(FAKE_IMAGE_RESULT)
+        self.assertEqual(asked, [None])
+
+    def test_a_new_picture_follows_the_latest_drawings_main_picture(self):
+        first, _ = self._turn(FAKE_IMAGE_RESULT, n_images="2", seeds=[21, 22])
+        r = self.c.post(f"/api/messages/{first.id}/main", json.dumps({"index": 1}),
+                        content_type="application/json")
+        self.assertEqual(r.status_code, 200, r.content[:200])
+        main = first.attachments.get(kind="generated", position=1).seed
+        self.assertIn(main, (21, 22))
+        _, asked = self._turn(FAKE_IMAGE_RESULT, n_images="2")
+        # the first of the batch follows; the second rolls its own
+        self.assertEqual(sorted(asked, key=str), sorted([main, None], key=str))
+
+    def test_an_edit_follows_the_picture_it_inherits_not_the_latest(self):
+        a, _ = self._turn(self._exposing(), seeds=[31])
+        self._turn(FAKE_IMAGE_RESULT, seeds=[32])
+        # an edit has to change the words, or it is refused as changing nothing
+        changed = _draw_result(base_prompt=FAKE_NAI_PROMPTS["base_prompt"] + ", cloud")
+        edited, asked = self._turn(_edit_of(a), seeds=[33], draw=changed)
+        self.assertEqual(asked, [31])
+        self.assertEqual(edited.status, "done", edited.error)
+        # and the next new picture follows the newest drawing, which is the edit
+        _, asked = self._turn(FAKE_IMAGE_RESULT)
+        self.assertEqual(asked, [33])
+
+    def test_a_redraw_rolls_its_own(self):
+        first, _ = self._turn(FAKE_IMAGE_RESULT, seeds=[41])
+        asked: list = []
+
+        def paint(*a, **kw):
+            asked.append(kw.get("seed"))
+            return _png_bytes(), 42
+
+        with _Drawn(paint=paint):
+            self.c.post(f"/api/messages/{first.id}/redraw")
+        self.assertEqual(asked, [None])
+
+
+@override_settings(**TEST_CREDS)
+class AnExposedKeyNobodyWroteGoesBackToTheLeadTests(TestCase):
+    """
+    A draw that exposes a costume the library does not hold and the answer
+    does not write would be drawn without it -- the real lead did this in two
+    of three character-creation turns. The app catches it before anything is
+    written, tells the lead which keys, once, and takes the answer it gives
+    back.
+    """
+
+    def setUp(self):
+        self.conv = Conversation.objects.create(title="c")
+        library.write_conversation_entries(
+            self.conv, 2, [_entry("黄昏", positive="sunset", category="光")],
+            [_entry("林", positive="1girl", variants=[_entry("校服", positive="sailor uniform")])])
+
+    @staticmethod
+    def _answer(expose, characters=None, settings=None, edits=None) -> dict:
+        return {"reply": "好", "settings": settings or [], "characters": characters or [], "edits": edits,
+                "draw": {"description": "x", "expose": expose, "inherits": "", "text": "", "size": ""}}
+
+    def test_what_counts_as_written(self):
+        missing = library.unwritten_exposure
+        # in the library: a setting, a character, one of its costumes; a removal is not asked about
+        self.assertEqual(missing(self.conv, self._answer(["黄昏", "林", "林/校服", "-旧的"])), [])
+        # a costume the library does not have, a setting nobody wrote
+        self.assertEqual(missing(self.conv, self._answer(["林/泳装", "雨夜"])), ["林/泳装", "雨夜"])
+        # written in the same answer: a new character with its costume, a setting, a project edit
+        answer = self._answer(
+            ["陈/日常装", "雨夜", library.PROJECT_PREFIX + "雪"],
+            characters=[_entry("陈", positive="1boy", variants=[_entry("日常装", positive="hoodie")])],
+            settings=[_entry("雨夜", positive="rain", category="光")],
+            edits={"settings": [_entry(library.PROJECT_PREFIX + "雪", positive="snow", category="天气")],
+                   "characters": []})
+        self.assertEqual(missing(self.conv, answer), [])
+        # a character written without the costume the draw names still lacks that costume
+        answer = self._answer(["陈/日常装"], characters=[_entry("陈", positive="1boy", variants=[])])
+        self.assertEqual(missing(self.conv, answer), ["陈/日常装"])
+        # no draw, nothing to check
+        self.assertEqual(missing(self.conv, {**FAKE_TEXT_RESULT}), [])
+
+    def test_the_lead_is_told_once_and_its_second_answer_stands(self):
+        first = self._answer(["陈/日常装"], characters=[_entry("陈", positive="1boy")])
+        second = self._answer(["陈/日常装"], characters=[
+            _entry("陈", positive="1boy", variants=[_entry("日常装", positive="hoodie")])])
+        seen: list = []
+
+        def run(system, history, schema, **kw):
+            seen.append(list(history))
+            return (first if len(seen) == 1 else second), {}
+
+        with mock.patch.object(llm, "_run", side_effect=run):
+            out = llm.lead_turn([{"role": "user", "content": "画陈"}], check=pipeline._exposure_check(self.conv))
+        self.assertEqual(len(seen), 2)
+        note = seen[1][-1]["content"]
+        self.assertEqual(note, wording.EXPOSE_MISSING.format(keys="陈/日常装"))
+        # the model reads back the answer the note is about
+        self.assertEqual(seen[1][-2]["role"], "assistant")
+        self.assertEqual(json.loads(seen[1][-2]["content"])["draw"]["expose"], ["陈/日常装"])
+        self.assertEqual([v["key"] for v in out["characters"][0]["variants"]], ["日常装"])
+        self.assertEqual([c["note"] for c in out["checks"]], [note])
+
+    def test_a_second_answer_that_still_misses_is_taken_as_it_is(self):
+        bad = self._answer(["陈/日常装"], characters=[_entry("陈", positive="1boy")])
+        with mock.patch.object(llm, "_run", return_value=(bad, {})) as run:
+            out = llm.lead_turn([{"role": "user", "content": "画陈"}], check=pipeline._exposure_check(self.conv))
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(out["draw"]["expose"], ["陈/日常装"])
+
+    def test_an_answer_that_holds_together_is_asked_for_once(self):
+        with mock.patch.object(llm, "_run", return_value=(self._answer(["林/校服"]), {})) as run:
+            out = llm.lead_turn([{"role": "user", "content": "画林"}], check=pipeline._exposure_check(self.conv))
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(out["checks"], [])
+
+    def test_the_pipeline_hands_the_check_to_the_lead_and_the_inspector_shows_it(self):
+        c = Client()
+        _login(c)
+        cid = c.post("/api/conversations", "{}", content_type="application/json").json()["id"]
+        told = {**FAKE_IMAGE_RESULT, "checks": [{"note": "n", "answer": {}}]}
+        with _Drawn(lead=told) as d:
+            c.post(f"/api/conversations/{cid}/messages", {"text": "画"})
+        check = d.lead.call_args.kwargs.get("check")
+        self.assertTrue(callable(check))
+        self.assertEqual(check(self._answer(["没有这个"])), wording.EXPOSE_MISSING.format(keys="没有这个"))
+        raw = c.get(f"/api/messages/{_assistant(cid).id}/raw").json()
+        self.assertEqual(raw["lead"]["checks"], [{"note": "n", "answer": {}}])

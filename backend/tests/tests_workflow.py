@@ -1,8 +1,9 @@
 """
-The reworked workflow, driven end to end through the real endpoints on the
-stand-in provider: entries with tag lines in two layers, a picture made from
-those lines, a change to it that keeps what it did not mention and follows the
-main picture's seed, and a main picture the user can move.
+The entry-based workflow, driven end to end through the real endpoints on the
+stand-in provider: entries the lead writes into two layers, a picture
+assembled from the entries it exposes, a change to it that inherits that
+exposure and follows the main picture's seed, and a main picture the user
+can move.
 
 Nothing here reads a prompt file. What the stand-in decides, it decides from
 the message it was sent (see providers/fake.py), so these pass and fail on the
@@ -15,17 +16,53 @@ import json
 from unittest import mock
 
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase, override_settings
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 
 from core.models import (
     Character, CharacterVariant, Conversation, Folder, LibraryProposal, Message, Setting,
 )
 from core import ui_text
 from core.prompts import wording
-from core.services import library, llm, pipeline, prompt as prompt_slots, proposals
-from core.services.providers.fake import EDIT_MARK, LOOKUP_MARK, NAMELESS_EDIT_MARK
+from core.services import assemble, drawnote, library, llm, novelai, pipeline
+from core.services.providers.fake import (
+    EDIT_MARK, LOOKUP_MARK, PROJECT_MARK, STUB_CHARACTER_TAGS, STUB_PICTURE_TAGS,
+    STUB_SETTING_TAGS, STUB_VARIANT_TAGS,
+)
 
 from .tests import _sync_jobs
+
+#: the project layer's prefix, as the lead reads and writes it
+P = library.PROJECT_PREFIX
+
+
+def _tags(raw: str) -> list[str]:
+    return library.split_tags(raw)
+
+
+def _lead_setting(key: str, positive: str = "", **more) -> dict:
+    """A setting as the lead writes one (llm._clean_entry's shape)."""
+    return {"key": key, "category": "", "note": "", "positive": positive, "negative": "", "prose": "", **more}
+
+
+def _lead_character(key: str, positive: str = "", variants: list[tuple[str, str]] | None = None, **more) -> dict:
+    """A character as the lead writes one; `variants` are (title, positive) pairs."""
+    return {
+        "key": key, "note": "", "positive": positive, "negative": "", "prose": "",
+        "variants": [{"key": t, "note": "", "positive": p, "negative": "", "prose": ""} for t, p in (variants or [])],
+        **more,
+    }
+
+
+def _exposed(key: str, kind: str = "setting", **more) -> dict:
+    """An exposed entry as library.entry_dict renders one, for the assembler."""
+    e: dict = {"id": key, "kind": kind, "key": key, "layer": "conversation", "shown_key": key,
+               "note": "", "positive": [], "negative": [], "prose": "", "origin_seq": None}
+    if kind == "setting":
+        e["category"] = ""
+    if kind == "variant":
+        e["character"] = key.split(library.VARIANT_SEP, 1)[0]
+    e.update(more)
+    return e
 
 
 @override_settings(LLM_PROVIDER="fake", FAKE_NOVELAI=True, APP_USERNAME="w", APP_PASSWORD="pw")
@@ -39,35 +76,134 @@ class WorkflowTests(TestCase):
         self.addCleanup(self.env.stop)
 
     def _conv(self, folder: Folder | None = None) -> Conversation:
-        conv = Conversation.objects.create(title="t", folder=folder)
-        return conv
+        return Conversation.objects.create(title="t", folder=folder)
 
-    def _send(self, conv: Conversation, text: str) -> Message:
+    def _turn(self, conv: Conversation, text: str, n: int = 1) -> Message:
+        """One turn through the real endpoint, however it ends."""
         with _sync_jobs(), mock.patch.object(pipeline.llm, "make_title", return_value=""):
             r = self.c.post(f"/api/conversations/{conv.id}/messages",
-                            {"text": text, "n_images": "2", "reflection_rounds": "0"})
+                            {"text": text, "n_images": str(n), "reflection_rounds": "0"})
         self.assertEqual(r.status_code, 201, r.content[:200])
         msg = conv.messages.filter(role="assistant").order_by("-seq").first()
         assert msg is not None
         msg.refresh_from_db()
+        return msg
+
+    def _send(self, conv: Conversation, text: str, n: int = 1) -> Message:
+        msg = self._turn(conv, text, n)
         self.assertEqual(msg.status, "done", msg.error)
         return msg
 
+    def _row(self, conv: Conversation, msg: Message) -> dict:
+        rows = self.c.get(f"/api/conversations/{conv.id}/messages").json()["messages"]
+        return next(m for m in rows if m["id"] == str(msg.id))
+
     # ------------------------------------------------------------ pictures
 
-    def test_a_picture_is_made_in_slots_and_the_row_keeps_them(self):
+    def test_a_picture_is_made_and_the_row_keeps_how_it_was_made(self):
         conv = self._conv()
-        msg = self._send(conv, "画一张")
-        assert msg.prompt is not None
-        self.assertIn("slots", msg.prompt)
+        msg = self._send(conv, "画一张", n=2)
         self.assertEqual(msg.attachments.filter(kind="generated").count(), 2)
         self.assertEqual(msg.main_index, 0)
         assert msg.nai_prompts is not None
         self.assertTrue(msg.nai_prompts["draw_id"])
+        # this picture's own tags, then the quality words; no entry, so no more
+        self.assertEqual(msg.nai_prompts["base_prompt"],
+                         ", ".join([*_tags(STUB_PICTURE_TAGS), novelai.QUALITY_WORDS, novelai.NO_TEXT_WORD]))
+        self.assertEqual(msg.nai_prompts["character_prompts"], [])
+        self.assertEqual(msg.nai_prompts["negative_prompt"], novelai.merge_negative(""))
+        # what it was made from and made with, for the next picture and the inspector
+        assert msg.prompt is not None
+        self.assertEqual(set(msg.prompt),
+                         {"description", "text", "size", "inherits", "exposed_keys", "exposed", "answer", "assembly"})
+        self.assertEqual(msg.prompt["description"], "画一张")
+        self.assertEqual((msg.prompt["inherits"], msg.prompt["exposed_keys"], msg.prompt["exposed"]), ("", [], []))
+        self.assertEqual(msg.prompt["answer"]["positive"], _tags(STUB_PICTURE_TAGS))
+        self.assertEqual(msg.prompt["assembly"], [])
+        self.assertIsNone(msg.selection_snapshot, "nothing exposed, nothing to receipt")
+        assert msg.draw_brief is not None
+        self.assertEqual(msg.draw_brief["inherits"], "")
+        raw = msg.model_raw or {}
+        self.assertNotIn("compress", raw, "a prompt within the limit is painted as assembled")
+        shown = self.c.get(f"/api/messages/{msg.id}/raw").json()
+        self.assertEqual(shown["picture"], msg.prompt)
+        self.assertEqual(shown["drawing"], msg.nai_prompts)
+        self.assertIsNone(shown["compress"])
+        self.assertEqual(self._row(conv, msg)["used_entries"], [])
 
-    def test_an_edit_continues_the_drawing_and_follows_its_main_seed(self):
+    def test_an_entry_the_lead_writes_reaches_the_prompt_and_the_row_says_so(self):
         conv = self._conv()
-        first = self._send(conv, "画一张")
+        msg = self._send(conv, "把「黄昏」记下来，画一张")
+        made = Setting.objects.get(title="黄昏")
+        self.assertEqual((made.conversation_id, made.folder_id, made.origin_seq), (conv.id, None, msg.seq))
+        self.assertEqual(made.positive, _tags(STUB_SETTING_TAGS))
+        self.assertIn(made.id, set(conv.selected_settings.values_list("id", flat=True)))
+        self.assertFalse(LibraryProposal.objects.filter(conversation=conv).exists(),
+                         "the conversation's own entries wait for nobody")
+        self.assertEqual((msg.model_raw or {}).get("edit_notes"), [ui_text.LIBRARY_WRITTEN.format(what="+ 黄昏")])
+        # the entry's tags are in the prompt, after this picture's own and before the quality words
+        base = (msg.nai_prompts or {})["base_prompt"]
+        self.assertIn(STUB_SETTING_TAGS, base)
+        self.assertLess(base.index(STUB_PICTURE_TAGS), base.index(STUB_SETTING_TAGS))
+        self.assertLess(base.index(STUB_SETTING_TAGS), base.index(novelai.QUALITY_WORDS))
+        # the row says what the picture was drawn from
+        picture: dict = msg.prompt or {}
+        self.assertEqual(picture["exposed_keys"], ["黄昏"])
+        self.assertEqual([(e["key"], e["kind"], e["layer"], e["positive"]) for e in picture["exposed"]],
+                         [("黄昏", "setting", "conversation", _tags(STUB_SETTING_TAGS))])
+        came_to = {"key": "黄昏", "kind": "setting", "used": True,
+                   "positive": _tags(STUB_SETTING_TAGS), "negative": [], "prose": ""}
+        self.assertEqual(picture["assembly"], [came_to])
+        snap = msg.selection_snapshot or {}
+        self.assertEqual(set(snap), {"entries", "keys"})
+        self.assertEqual(snap["keys"], ["黄昏"])
+        self.assertEqual([e["key"] for e in snap["entries"]], ["黄昏"])
+        row = self._row(conv, msg)
+        self.assertEqual(row["used_entries"], [came_to])
+        self.assertEqual(row["selection_snapshot"], snap)
+        # and the lead reads it in full next turn, with where it came from: the
+        # id of the drawing of the turn that wrote it, as the conversation shows it
+        text = library.as_prompt_text(library.selection_for(conv))
+        self.assertIn(STUB_SETTING_TAGS, text)
+        self.assertIn(wording.ENTRY_FROM_LEAD.format(id=(msg.nai_prompts or {})["draw_id"]), text)
+
+    def test_a_character_the_lead_writes_is_drawn_through_her_costume(self):
+        conv = self._conv()
+        msg = self._send(conv, "角色「林晚」站在窗前")
+        her = Character.objects.get(name="林晚", conversation=conv)
+        self.assertEqual((her.positive, her.origin_seq), (_tags(STUB_CHARACTER_TAGS), msg.seq))
+        self.assertEqual([(v.title, v.positive) for v in her.variants.all()], [("日常装", _tags(STUB_VARIANT_TAGS))])
+        self.assertEqual([v.title for v in conv.selected_variants.all()], ["日常装"])
+        nai = msg.nai_prompts or {}
+        self.assertEqual([(c["key"], c["prompt"], c["negative"]) for c in nai["character_prompts"]],
+                         [("林晚", f"{STUB_CHARACTER_TAGS}, {STUB_VARIANT_TAGS}", "")])
+        self.assertNotIn(STUB_CHARACTER_TAGS, nai["base_prompt"], "a character's words stay in her own segment")
+        picture: dict = msg.prompt or {}
+        self.assertEqual(picture["exposed_keys"], ["林晚", "林晚/日常装"], "a costume brings its character")
+        self.assertEqual([(r["key"], r["kind"]) for r in picture["assembly"]],
+                         [("林晚", "character"), ("林晚/日常装", "variant")])
+
+    def test_writing_the_same_key_again_overrides_the_entry_in_place(self):
+        conv = self._conv()
+        first = self._send(conv, "把「黄昏」记下来，不用画")
+        made = Setting.objects.get(title="黄昏", conversation=conv)
+        self.assertEqual(made.origin_seq, first.seq)
+        conv.selected_settings.remove(made)   # the user switches it off in between
+        second = self._send(conv, "再把「黄昏」记下来一遍，不用画")
+        self.assertEqual(Setting.objects.filter(title="黄昏").count(), 1, "same key, same row")
+        again = Setting.objects.get(title="黄昏", conversation=conv)
+        self.assertEqual(again.id, made.id)
+        self.assertEqual(again.origin_seq, second.seq)
+        self.assertNotEqual(again.content, made.content)
+        self.assertIn(again.id, set(conv.selected_settings.values_list("id", flat=True)),
+                      "an override switches the entry back on")
+        self.assertEqual((second.model_raw or {}).get("edit_notes"), [ui_text.LIBRARY_WRITTEN.format(what="~ 黄昏")])
+        self.assertIn(wording.ENTRY_FROM_LEAD_NO_DRAW, library.as_prompt_text(library.selection_for(conv)),
+                      "written at a turn that drew nothing")
+
+    def test_an_edit_inherits_the_exposure_and_follows_the_main_seed(self):
+        conv = self._conv()
+        first = self._send(conv, "把「黄昏」记下来，画一张", n=2)
         pictures = list(first.attachments.filter(kind="generated").order_by("position"))
         self.assertEqual(len(pictures), 2)
 
@@ -78,36 +214,48 @@ class WorkflowTests(TestCase):
         self.assertEqual(r.status_code, 200, r.content[:200])
         self.assertEqual(r.json()["messages"][0]["main_index"], pictures[1].position)
 
-        second = self._send(conv, f"{EDIT_MARK}：再亮一点")
-        assert second.draw_brief is not None
-        self.assertEqual(second.draw_brief["continues"], (first.nai_prompts or {})["draw_id"])
-        self.assertEqual(second.draw_brief["change"], f"{EDIT_MARK}：再亮一点")
-        # the first picture of the edit follows the main picture's seed; the
-        # second rolls its own
+        second = self._send(conv, f"{EDIT_MARK}，角色「林晚」走进来", n=2)
+        assert second.draw_brief is not None and second.prompt is not None
+        draw_id = (first.nai_prompts or {})["draw_id"]
+        self.assertEqual(second.draw_brief["inherits"], draw_id)
+        self.assertEqual(second.prompt["inherits"], draw_id)
+        # the lead named only what this picture adds; the rest came with the drawing
+        self.assertEqual(second.draw_brief["expose"], ["林晚/日常装"])
+        self.assertEqual(second.prompt["exposed_keys"], ["黄昏", "林晚", "林晚/日常装"])
+        nai = second.nai_prompts or {}
+        self.assertIn(STUB_SETTING_TAGS, nai["base_prompt"])
+        self.assertEqual([c["prompt"] for c in nai["character_prompts"]], [f"{STUB_CHARACTER_TAGS}, {STUB_VARIANT_TAGS}"])
+        # the first picture of the edit follows the main picture's seed; the second rolls its own
         seeds = [a.seed for a in second.attachments.filter(kind="generated").order_by("position")]
         self.assertEqual(seeds[0], pictures[1].seed)
         self.assertNotEqual(seeds[1], pictures[1].seed)
-        # and the change list is on the row for 「检查」
-        raw = (second.model_raw or {})
-        self.assertEqual(raw.get("draw_patch"), {"other": {"prose": {"set": "redrawn by the stand-in"}}})
-        # what was not mentioned stayed byte for byte
-        assert first.prompt and second.prompt
-        self.assertEqual(first.prompt["slots"]["count"], second.prompt["slots"]["count"])
-        self.assertEqual(second.prompt["slots"]["other"]["prose"], "redrawn by the stand-in")
-        # and the sentence went out after the tags
-        self.assertTrue((second.nai_prompts or {})["base_prompt"].endswith("redrawn by the stand-in."))
 
-    def test_a_change_that_names_no_drawing_changes_the_latest_one(self):
-        """The real lead now and then writes `change` and leaves `continues`
-        empty; read as a new picture, that throws away everything the change
-        did not mention."""
+    def test_an_edit_that_sends_the_same_words_again_is_refused(self):
+        """The lead asked for a change; a picture that sends NovelAI the very
+        words of the picture it continues is the same picture paid for twice."""
         conv = self._conv()
-        first = self._send(conv, "画一张")
-        second = self._send(conv, f"{NAMELESS_EDIT_MARK}：再亮一点")
-        assert second.draw_brief is not None
-        self.assertEqual(second.draw_brief["continues"], (first.nai_prompts or {})["draw_id"])
-        self.assertEqual((second.model_raw or {}).get("draw_patch"),
-                         {"other": {"prose": {"set": "redrawn by the stand-in"}}})
+        self._send(conv, "把「黄昏」记下来，画一张")
+        second = self._turn(conv, f"{EDIT_MARK}：再亮一点")
+        self.assertEqual(second.status, "error")
+        self.assertIn(ui_text.EDIT_CHANGED_NOTHING, second.error)
+        self.assertEqual(second.attachments.filter(kind="generated").count(), 0)
+
+    def test_inheriting_a_drawing_without_a_stored_exposure_draws_new_but_follows_its_seed(self):
+        """A drawing from before exposures were stored cannot be continued,
+        only followed: the picture is drawn new under its main seed."""
+        conv = self._conv()
+        first = self._send(conv, "把「黄昏」记下来，画一张")
+        Message.objects.filter(id=first.id).update(prompt=None)
+        main = first.attachments.filter(kind="generated").order_by("position").first()
+        assert main is not None
+        second = self._send(conv, f"{EDIT_MARK}：再亮一点")
+        assert second.draw_brief is not None and second.prompt is not None
+        self.assertEqual(second.draw_brief["inherits"], (first.nai_prompts or {})["draw_id"])
+        self.assertEqual(second.prompt["exposed_keys"], [])
+        self.assertNotIn(STUB_SETTING_TAGS, (second.nai_prompts or {})["base_prompt"])
+        got = second.attachments.filter(kind="generated").order_by("position").first()
+        assert got is not None
+        self.assertEqual(got.seed, main.seed)
 
     def test_a_new_picture_follows_the_latest_main_seed_too(self):
         conv = self._conv()
@@ -128,7 +276,7 @@ class WorkflowTests(TestCase):
     def test_the_main_picture_survives_by_position_when_earlier_ones_are_gone(self):
         """A reflection round discards the pictures it replaced; positions keep counting."""
         conv = self._conv()
-        msg = self._send(conv, "画一张")
+        msg = self._send(conv, "画一张", n=2)
         pictures = list(msg.attachments.filter(kind="generated").order_by("position"))
         pictures[0].delete()
         self.assertEqual(pipeline.main_seed(Message.objects.get(id=msg.id)), pictures[1].seed)
@@ -142,47 +290,195 @@ class WorkflowTests(TestCase):
         r = self.c.get(f"/api/messages/{msg.id}/raw").json()
         self.assertEqual(len(r["lookups"]["lead"]), 1)
 
+    def test_an_exposure_nobody_answers_to_and_an_inherits_nobody_made_are_said_on_the_row(self):
+        conv = self._conv()
+        first = self._send(conv, "画一张")
+        main = first.attachments.filter(kind="generated").order_by("position").first()
+        assert main is not None
+        msg = Message.objects.create(conversation=conv, seq=first.seq + 2, role="assistant",
+                                     status="pending", force_n_images=1)
+        spec = {"description": "窗边", "expose": ["不存在"], "inherits": "nope", "text": "", "size": ""}
+        ctx = pipeline._draw_context(conv, msg, spec, {})
+        self.assertEqual(ctx.seed, main.seed, "an id nobody made: drawn new, following the latest drawing")
+        self.assertIsNone(ctx.source_prompts)
+        self.assertEqual(ctx.exposure.unknown, ["不存在"])
+        self.assertEqual(ctx.exposure.keys, [])
+        pipeline._prompts_and_paint(msg, spec, ctx)
+        msg.refresh_from_db()
+        self.assertIn(ui_text.EXPOSE_UNKNOWN.format(keys="不存在"), (msg.model_raw or {}).get("draw_notes") or [])
+
+    def test_the_history_tells_the_lead_what_it_wrote_and_what_each_drawing_exposed(self):
+        conv = self._conv()
+        msg = self._send(conv, "把「黄昏」记下来，画一张")
+        history = pipeline.build_history(conv, before_seq=msg.seq + 1)
+        said = json.loads(next(m["content"] for m in history if m["role"] == "assistant"))
+        self.assertEqual(set(said), {"reply", "settings", "characters", "edits", "draw"})
+        self.assertEqual([s["key"] for s in said["settings"]], ["黄昏"])
+        self.assertEqual(said["draw"]["expose"], ["黄昏"])
+        notes = [p["text"] for m in history if m["role"] == "user" and isinstance(m["content"], list)
+                 for p in m["content"] if p.get("type") == "text"]
+        self.assertTrue(any(wording.APP_NOTE_EXPOSED.format(keys="黄昏") in t for t in notes), notes)
+        self.assertTrue(any(wording.SYSTEM_NOTE_DRAW.format(id=(msg.nai_prompts or {})["draw_id"]) in t
+                            for t in notes), notes)
+
     # ------------------------------------------------------------ the library
 
-    def test_a_note_for_this_conversation_is_written_at_once(self):
-        """No project: everything the model records lives in this conversation."""
+    def test_outside_a_project_a_project_edit_lands_in_this_conversation(self):
+        """No project: an edit has nowhere to go but this conversation's layer."""
         conv = self._conv()
-        self._send(conv, "把「黄昏」记下来")
+        self._send(conv, f"把「黄昏」记下来{PROJECT_MARK}，不用画")
         made = Setting.objects.get(title="黄昏")
-        self.assertEqual(made.conversation_id, conv.id)
-        self.assertIsNone(made.folder_id)
-        self.assertEqual(LibraryProposal.objects.get(conversation=conv).status, "applied")
-        # switched on, and read by both models next turn
+        self.assertEqual((made.conversation_id, made.folder_id), (conv.id, None))
+        self.assertEqual(Setting.objects.count(), 1)
+        self.assertFalse(LibraryProposal.objects.filter(conversation=conv).exists())
         self.assertIn(made.id, set(conv.selected_settings.values_list("id", flat=True)))
-        sel = library.selection_for(conv)
-        self.assertIn("黄昏", library.as_prompt_text(sel))
 
-    def test_in_a_project_a_project_scoped_note_waits_for_approval(self):
+    def test_in_a_project_a_project_edit_waits_for_approval_while_the_conversations_entry_is_written(self):
         folder = Folder.objects.create(name="项目")
         conv = self._conv(folder)
-        self._send(conv, "把「黄昏」记下来")
-        self.assertFalse(Setting.objects.filter(title="黄昏").exists())
-        self.assertEqual(LibraryProposal.objects.get(conversation=conv).status, "pending")
+        msg = self._send(conv, f"把「黄昏」记下来{PROJECT_MARK}，不用画")
+        own = Setting.objects.get(title="黄昏")
+        self.assertEqual((own.conversation_id, own.folder_id), (conv.id, None))
+        self.assertFalse(Setting.objects.filter(folder=folder, title="黄昏").exists())
+        p = LibraryProposal.objects.get(conversation=conv)
+        self.assertEqual((p.status, p.message_id, p.folder_id), ("pending", msg.id, folder.id))
+        self.assertEqual([s["key"] for s in p.payload["settings"]], [P + "黄昏"])
+        self.assertEqual(p.payload["settings"][0]["positive"], _tags(STUB_SETTING_TAGS))
 
-    def test_in_a_project_an_unscoped_note_is_the_conversations_own(self):
-        """The project is the layer the user asks for by name; a note the
-        model forgot to scope stays in this conversation."""
+    def test_in_a_project_the_leads_own_entries_are_still_the_conversations(self):
         folder = Folder.objects.create(name="项目")
         conv = self._conv(folder)
-        self._send(conv, "把「黄昏」记下来，不说层")
+        self._send(conv, "把「黄昏」记下来，不用画")
         made = Setting.objects.get(title="黄昏")
-        self.assertEqual(made.conversation_id, conv.id)
-        self.assertEqual(LibraryProposal.objects.get(conversation=conv).status, "applied")
+        self.assertEqual((made.conversation_id, made.folder_id), (conv.id, None))
+        self.assertFalse(LibraryProposal.objects.filter(conversation=conv).exists())
 
-    def test_the_receipt_names_the_entries_the_turn_itself_wrote(self):
-        """A turn that records a conversation-layer entry and draws from it
-        in the same breath: the receipt (selection_snapshot) has to carry that
-        entry, since the picture was drawn from its lines."""
+    def test_approving_promotes_the_conversations_entry_in_place_and_keeps_it_on(self):
+        """The lead wrote it down to draw from it here; approved, the same row
+        becomes the project's, still switched on in the conversation that made it."""
+        folder = Folder.objects.create(name="项目")
+        conv = self._conv(folder)
+        self._send(conv, f"把「黄昏」记下来{PROJECT_MARK}，不用画")
+        own = Setting.objects.get(title="黄昏")
+        p = LibraryProposal.objects.get(conversation=conv)
+        r = self.c.post(f"/api/proposals/{p.id}/resolve", json.dumps({"approve": True}),
+                        content_type="application/json")
+        self.assertEqual(r.status_code, 200, r.content[:200])
+        self.assertEqual(r.json()["status"], "applied")
+        self.assertEqual(r.json()["applied_summary"], ui_text.PROPOSAL_UPDATED_SETTING.format(title="黄昏"))
+        self.assertEqual(Setting.objects.filter(title="黄昏").count(), 1, "promoted, not copied")
+        moved = Setting.objects.get(id=own.id)
+        self.assertEqual((moved.folder_id, moved.conversation_id, moved.origin_seq), (folder.id, None, None))
+        self.assertEqual(moved.positive, _tags(STUB_SETTING_TAGS))
+        self.assertIn(moved.id, set(conv.selected_settings.values_list("id", flat=True)))
+        self.assertIn(P + "黄昏", library.as_prompt_text(library.selection_for(conv)))
+
+    def test_a_project_edit_is_exposed_in_its_edited_form_before_anyone_approves_it(self):
+        folder = Folder.objects.create(name="项目")
+        conv = self._conv(folder)
+        project = Setting.objects.create(folder=folder, title="黄昏", content="旧的", category="光", positive=["sunset"])
+        conv.selected_settings.add(project)   # the person switched it on
+        msg = Message.objects.create(conversation=conv, seq=2, role="assistant", status="pending", force_n_images=1)
+        edit = _lead_setting(P + "黄昏", "dusk, pink sky", category="光")
+        result = {"reply": "", "settings": [], "characters": [],
+                  "edits": {"settings": [edit], "characters": []},
+                  "draw": {"description": "黄昏里的一个人", "expose": [P + "黄昏"], "inherits": "", "text": "", "size": ""}}
+        overlay = pipeline._write_library(conv, msg, result)
+        self.assertEqual(LibraryProposal.objects.get(conversation=conv).status, "pending")
+        self.assertEqual(Setting.objects.get(id=project.id).positive, ["sunset"], "nothing is written until approved")
+        self.assertEqual(set(overlay), {"黄昏"})
+        ctx = pipeline._draw_context(conv, msg, result["draw"], overlay)
+        self.assertEqual(ctx.exposure.keys, [P + "黄昏"])
+        self.assertEqual(ctx.exposure.entries[0]["positive"], ["dusk", "pink sky"])
+        self.assertTrue(ctx.exposure.entries[0].get("edited_this_turn"))
+        self.assertIn(project.id, set(conv.selected_settings.values_list("id", flat=True)),
+                      "exposing a project entry switches it on")
+        nai_prompts, images = pipeline._prompts_and_paint(msg, result["draw"], ctx)
+        self.assertIn("dusk, pink sky", nai_prompts["base_prompt"])
+        self.assertNotIn("sunset", nai_prompts["base_prompt"])
+        self.assertEqual(len(images), 1)
+        msg.refresh_from_db()
+        assert msg.prompt is not None
+        self.assertEqual(msg.prompt["exposed_keys"], [P + "黄昏"])
+        self.assertEqual(msg.prompt["exposed"][0]["positive"], ["dusk", "pink sky"])
+
+    def test_an_exposure_list_adds_to_what_it_inherits_and_takes_keys_away_with_a_minus(self):
         conv = self._conv()
-        msg = self._send(conv, "把「黄昏」记下来，本对话")
-        self.assertTrue((msg.nai_prompts or {}).get("draw_id"))
-        snap = msg.selection_snapshot or {}
-        self.assertEqual([s["title"] for s in snap.get("settings") or []], ["黄昏"])
+        library.write_conversation_entries(
+            conv, 1, [_lead_setting("黄昏", "sunset"), _lead_setting("夜景", "night")],
+            [_lead_character("林", "1girl", [("校服", "serafuku")])])
+        got = library.resolve_exposure(conv, [library.REMOVE_PREFIX + "黄昏", "林/校服"], inherited=["黄昏", "夜景"])
+        self.assertEqual(got.keys, ["夜景", "林", "林/校服"])
+        self.assertEqual(got.unknown, [])
+        self.assertEqual([e["positive"] for e in got.entries], [["night"], ["1girl"], ["serafuku"]])
+        # a key named twice is exposed once; a key nobody has is reported, not invented
+        got = library.resolve_exposure(conv, ["黄昏", "不存在", "林/没有的造型"], inherited=["黄昏"])
+        self.assertEqual(got.keys, ["黄昏", "林"])
+        self.assertEqual(got.unknown, ["不存在", "林/没有的造型"])
+        self.assertEqual(library.exposure_text(got.entries).count("◆ "), 2)
+        self.assertEqual(library.exposure_text([]), wording.EXPOSURE_NONE)
+
+    def test_a_project_entry_is_named_with_its_prefix_and_an_edit_of_it_comes_before_the_exposure(self):
+        folder = Folder.objects.create(name="项目")
+        conv = self._conv(folder)
+        project = Setting.objects.create(folder=folder, title="画风", content="厚涂", category="画风", positive=["painterly"])
+        conv.selected_settings.add(project)
+        for key in (P + "画风", "画风"):
+            got = library.resolve_exposure(conv, [key])
+            self.assertEqual([(e["shown_key"], e["layer"]) for e in got.entries], [(P + "画风", "project")], key)
+        overlay = library.overlay_from_edits(
+            {"settings": [_lead_setting(P + "画风", "watercolor", note="水彩")], "characters": []})
+        got = library.resolve_exposure(conv, [P + "画风"], overlay=overlay)
+        e = got.entries[0]
+        self.assertEqual((e["positive"], e["note"], e["category"]), (["watercolor"], "水彩", "画风"))
+        self.assertTrue(e.get("edited_this_turn"))
+        self.assertEqual(Setting.objects.get(id=project.id).positive, ["painterly"])
+        # the conversation's own entry of that name is another key, and is left alone
+        library.write_conversation_entries(conv, 1, [_lead_setting("画风", "sketch")], [])
+        got = library.resolve_exposure(conv, ["画风", P + "画风"], overlay=overlay)
+        self.assertEqual([(e["shown_key"], e["positive"]) for e in got.entries],
+                         [("画风", ["sketch"]), (P + "画风", ["watercolor"])])
+        # the drawing model reads the keys plainly: it has one layer in front of it
+        self.assertIn("◆ 画风（", library.exposure_text(got.entries))
+        self.assertNotIn(P, library.exposure_text(got.entries))
+
+    def test_the_lead_sees_only_what_the_person_has_switched_on(self):
+        """A project character this conversation has not switched on is not in
+        the lead's library at all, not even by name; naming her finds nothing
+        and switches nothing on. Once the person switches one of her variants
+        on, the lead reads her and that variant in full -- and only that one."""
+        folder = Folder.objects.create(name="项目")
+        conv = self._conv(folder)
+        her = Character.objects.create(folder=folder, name="瓦洛东小姐", description="银发的画家",
+                                       positive=["1girl", "silver hair"])
+        casual = CharacterVariant.objects.create(character=her, title="便服", position=1, positive=["sweater"])
+        CharacterVariant.objects.create(character=her, title="礼服", position=2, positive=["dress"])
+        style = Setting.objects.create(folder=folder, title="画风", content="厚涂", positive=["painterly"])
+        text = library.as_prompt_text(library.selection_for(conv))
+        self.assertNotIn("瓦洛东小姐", text)
+        self.assertNotIn("画风", text)
+        self.assertIn(wording.LIBRARY_EMPTY, text)
+
+        got = library.resolve_exposure(conv, ["瓦洛东小姐", P + "瓦洛东小姐/便服", P + "画风"])
+        self.assertEqual(got.keys, [])
+        self.assertEqual(got.unknown, ["瓦洛东小姐", P + "瓦洛东小姐/便服", P + "画风"])
+        self.assertFalse(conv.selected_variants.exists())
+        self.assertFalse(conv.selected_settings.exists())
+        answer = {"draw": {"expose": [P + "瓦洛东小姐/便服", P + "画风"]}}
+        self.assertEqual(library.unwritten_exposure(conv, answer), [P + "瓦洛东小姐/便服", P + "画风"])
+
+        conv.selected_variants.add(casual)
+        conv.selected_settings.add(style)
+        text = library.as_prompt_text(library.selection_for(conv))
+        self.assertIn("silver hair", text)
+        self.assertIn(P + "瓦洛东小姐/便服", text)
+        self.assertNotIn("礼服", text, "a variant left off stays out of sight")
+        got = library.resolve_exposure(conv, [P + "瓦洛东小姐/便服", P + "瓦洛东小姐/礼服", P + "画风"])
+        self.assertEqual(got.keys, [P + "瓦洛东小姐", P + "瓦洛东小姐/便服", P + "画风"])
+        self.assertEqual(got.unknown, [P + "瓦洛东小姐/礼服"])
+        self.assertEqual(sorted(v.title for v in conv.selected_variants.all()), ["便服"])
+        self.assertEqual(library.unwritten_exposure(conv, {"draw": {"expose": [P + "画风", P + "瓦洛东小姐/礼服"]}}),
+                         [P + "瓦洛东小姐/礼服"])
 
     def test_a_branch_rebuilds_the_conversation_layer_as_it_was_at_that_message(self):
         """A branch at an earlier message starts with the entries that point
@@ -190,17 +486,17 @@ class WorkflowTests(TestCase):
         point is the moment the next message was sent: see the test below
         for what a hand edit in between does.)"""
         conv = self._conv()
-        first = self._send(conv, "把「黄昏」记下来")
-        second = self._send(conv, "把「夜景」记下来")
+        first = self._send(conv, "把「黄昏」记下来，不用画")
+        second = self._send(conv, "把「夜景」记下来，不用画")
         r = self.c.post(f"/api/messages/{first.id}/branch")
         self.assertEqual(r.status_code, 201, r.content[:200])
         early = Conversation.objects.get(id=r.json()["id"])
         self.assertEqual(list(early.own_settings.values_list("title", flat=True)), ["黄昏"])
         self.assertEqual(list(early.selected_settings.values_list("title", flat=True)), ["黄昏"])
-        # a copy with the lines' ids kept, and the source untouched
+        # a copy of the entry as it read, and the source untouched
         src = Setting.objects.get(conversation=conv, title="黄昏")
-        self.assertEqual([ln["id"] for ln in early.own_settings.get().tags],
-                         [ln["id"] for ln in src.tags])
+        copy = early.own_settings.get()
+        self.assertEqual((copy.positive, copy.content, copy.origin_seq), (src.positive, src.content, src.origin_seq))
         self.assertEqual(set(conv.own_settings.values_list("title", flat=True)), {"黄昏", "夜景"})
         r = self.c.post(f"/api/messages/{second.id}/branch")
         late = Conversation.objects.get(id=r.json()["id"])
@@ -211,14 +507,14 @@ class WorkflowTests(TestCase):
         entry edited later comes back as it was, an entry deleted later
         comes back at all, and what was switched on then is switched on."""
         conv = self._conv()
-        first = self._send(conv, "把「黄昏」记下来")
+        first = self._send(conv, "把「黄昏」记下来，不用画")
         dusk = Setting.objects.get(conversation=conv, title="黄昏")
-        then_content, then_lines = dusk.content, [ln["tags"] for ln in dusk.tags]
+        then = (dusk.content, dusk.positive)
         # later: the user rewrites it by hand, the lead adds another, and the user deletes the first
-        r = self.c.patch(f"/api/settings/{dusk.id}", json.dumps({"content": "改成深夜", "tags": [
-            {"part": "天色", "tags": "midnight"}]}), content_type="application/json")
+        r = self.c.patch(f"/api/settings/{dusk.id}", json.dumps({"content": "改成深夜", "positive": "midnight"}),
+                         content_type="application/json")
         self.assertEqual(r.status_code, 200, r.content[:200])
-        second = self._send(conv, "把「夜景」记下来")
+        second = self._send(conv, "把「夜景」记下来，不用画")
         self.assertEqual(Setting.objects.get(id=dusk.id).content, "改成深夜")
         r = self.c.delete(f"/api/settings/{dusk.id}")
         self.assertEqual(r.status_code, 200, r.content[:200])
@@ -230,10 +526,8 @@ class WorkflowTests(TestCase):
         r = self.c.post(f"/api/messages/{first.id}/branch")
         early = Conversation.objects.get(id=r.json()["id"])
         got = early.own_settings.get()
-        self.assertEqual(got.title, "黄昏")
-        self.assertEqual(got.content, "改成深夜")
-        self.assertEqual([ln["tags"] for ln in got.tags], ["midnight"])
-        self.assertNotEqual((then_content, then_lines), (got.content, [ln["tags"] for ln in got.tags]))
+        self.assertEqual((got.title, got.content, got.positive), ("黄昏", "改成深夜", ["midnight"]))
+        self.assertNotEqual(then, (got.content, got.positive))
         self.assertEqual(list(early.selected_settings.values_list("title", flat=True)), ["黄昏"])
         # a branch at the second (latest) message starts from now: 黄昏 is gone, 夜景 is there
         r = self.c.post(f"/api/messages/{second.id}/branch")
@@ -244,129 +538,43 @@ class WorkflowTests(TestCase):
 
     def test_a_branch_of_a_history_without_snapshots_copies_the_layer_as_it_is_now(self):
         conv = self._conv()
-        msg = self._send(conv, "把「黄昏」记下来")
-        Message.objects.filter(conversation=conv).update(library_snapshot=None)
+        msg = self._send(conv, "把「黄昏」记下来，不用画")
+        Message.objects.filter(conversation=conv).update(library_snapshot=None, library_before=None)
         r = self.c.post(f"/api/messages/{msg.id}/branch")
         branch = Conversation.objects.get(id=r.json()["id"])
         self.assertEqual(list(branch.own_settings.values_list("title", flat=True)), ["黄昏"])
 
-    def test_a_new_conversation_in_a_project_starts_with_the_projects_settings_on(self):
+    def test_a_new_conversation_in_a_project_starts_with_nothing_switched_on(self):
+        """The project's settings used to come on by themselves; the user
+        asked for an empty start (2026-10-17). They are listed to the lead,
+        who switches one on by exposing it, and to the user, who ticks."""
         folder = Folder.objects.create(name="项目")
-        style = Setting.objects.create(folder=folder, title="画风", content="厚涂",
-                                       tags=[{"id": "s1", "part": "画风", "tags": "painterly"}])
+        Setting.objects.create(folder=folder, title="画风", content="厚涂", positive=["painterly"])
         r = self.c.post("/api/conversations", json.dumps({"folder_id": str(folder.id)}),
                         content_type="application/json")
         self.assertEqual(r.status_code, 201, r.content[:200])
         conv = Conversation.objects.get(id=r.json()["id"])
-        self.assertEqual([s.id for s in conv.selected_settings.all()], [style.id])
-        # and so does one moved into the project later
+        self.assertEqual(list(conv.selected_settings.all()), [])
+        # and one moved into the project later starts the same way
         other = Conversation.objects.create(title="t")
         r = self.c.post(f"/api/conversations/{other.id}/folder", json.dumps({"folder_id": str(folder.id)}),
                         content_type="application/json")
         self.assertEqual(r.status_code, 200, r.content[:200])
-        self.assertEqual([s.id for s in other.selected_settings.all()], [style.id])
+        self.assertEqual(list(other.selected_settings.all()), [])
 
-    def test_the_lead_sees_the_rest_of_the_project_and_switches_a_character_on_by_naming_her(self):
-        """A project character that this conversation has not switched on is
-        listed to the lead by name; drawing her by name switches her on,
-        costume and all, instead of the lead making her up again."""
-        folder = Folder.objects.create(name="项目")
-        conv = self._conv(folder)
-        her = Character.objects.create(
-            folder=folder, name="瓦洛东小姐", description="银发的画家",
-            tags=[{"id": "k1", "part": "身份", "tags": "1girl"}, {"id": "k2", "part": "头发", "tags": "silver hair"}])
-        CharacterVariant.objects.create(character=her, title="便服", position=1,
-                                        tags=[{"id": "v1", "part": "毛衣", "tags": "sweater"}])
-        CharacterVariant.objects.create(character=her, title="礼服", position=2,
-                                        tags=[{"id": "v2", "part": "裙子", "tags": "dress"}])
-        text = library.as_prompt_text(library.selection_for(conv))
-        self.assertIn(wording.LIBRARY_OFF_HEADING, text)
-        self.assertIn(wording.LIBRARY_OFF_CHARACTER.format(name="瓦洛东小姐", text="银发的画家"), text)
-        self.assertIn(wording.LIBRARY_OFF_VARIANTS.format(titles="便服、礼服"), text)
-        self.assertNotIn("k2  头发", text, "an entry that is off is named, not spelled out")
-
-        # the stand-in lead draws 瓦洛东小姐 with no outfit named
-        msg = self._send(conv, "画她")
-        on = list(conv.selected_variants.all())
-        self.assertEqual([(v.character.name, v.title) for v in on], [("瓦洛东小姐", "便服")],
-                         "named with no outfit: her first costume")
-        snap = msg.selection_snapshot or {}
-        self.assertEqual([c["name"] for c in snap.get("characters") or []], ["瓦洛东小姐"])
-        text = library.as_prompt_text(library.selection_for(conv))
-        self.assertIn("k2  头发：silver hair", text)
-        self.assertNotIn(wording.LIBRARY_OFF_HEADING, text)
-
-    def test_a_conversation_edit_of_a_project_character_shadows_it_with_a_seeded_copy(self):
-        """What is said about a character in a conversation changes this
-        conversation's copy; the project entry changes only when asked."""
-        folder = Folder.objects.create(name="项目")
-        conv = self._conv(folder)
-        project = Character.objects.create(
-            folder=folder, name="林", description="黑发",
-            tags=[{"id": "k1", "part": "身份", "tags": "1girl"},
-                  {"id": "k2", "part": "头发", "tags": "black hair"}])
-        CharacterVariant.objects.create(
-            character=project, title="校服",
-            tags=[{"id": "v1", "part": "衬衫", "tags": "white shirt"}])
-        asked = Message.objects.create(conversation=conv, seq=1, role="user", content="加眼镜")
-        proposals.record(conv, asked, {"settings": [], "characters": [{
-            "name": "林", "scope": "conversation",
-            "tags": [{"part": "身份", "tags": "1girl"}, {"part": "头发", "tags": "black hair"},
-                     {"part": "眼镜", "tags": "glasses"}],
-            "variants": [],
-        }]})
-        project.refresh_from_db()
-        self.assertEqual([ln["id"] for ln in project.tags], ["k1", "k2"])
-        own = Character.objects.get(name="林", conversation=conv)
-        self.assertEqual([(ln["id"], ln["part"]) for ln in own.tags],
-                         [("k1", "身份"), ("k2", "头发"), ("k3", "眼镜")])
-        self.assertEqual(own.description, "黑发")
-        self.assertEqual([(v.title, v.tags[0]["id"]) for v in own.variants.all()], [("校服", "v1")])
-        sel = library.selection_for(conv)
-        self.assertIn("k3", library.as_lines(sel))
-
-    def test_only_a_settings_style_lines_fill_the_style_slot_the_rest_are_listed_to_pick(self):
-        conv = self._conv()
-        r = self.c.post(f"/api/conversations/{conv.id}/settings",
-                        json.dumps({"title": "图书馆", "content": "旧图书馆",
-                                    "tags": [{"part": "画风", "tags": "painterly"},
-                                             {"part": "书架", "tags": "dark wood bookshelves"}]}),
-                        content_type="application/json")
-        self.assertEqual(r.status_code, 201, r.content[:200])
-        sel = library.selection_for(conv)
-        text = library.as_lines(sel)
-        self.assertIn("s2  书架：dark wood bookshelves", text)
-        self.assertIn("s1  画风：painterly" + wording.LIBRARY_STYLE_LINE_MARK, text)
-        self.assertEqual(library.setting_lines_map(sel),
-                         {"图书馆": {"s1": "painterly", "s2": "dark wood bookshelves"}})
-        self.assertEqual(library.style_lines_map(sel), {"图书馆": {"s1": "painterly"}})
-        self.assertEqual(library.setting_truth(sel),
-                         {"图书馆": [("s1", "画风", "painterly", True), ("s2", "书架", "dark wood bookshelves", False)]})
-
-    def test_approving_switches_the_entry_on_where_it_was_proposed(self):
-        """The lead wrote it down to draw from it here; an approved entry left
-        off was read by the drawing model as no entry at all."""
-        folder = Folder.objects.create(name="项目")
-        conv = self._conv(folder)
-        self._send(conv, "把「黄昏」记下来")
-        p = LibraryProposal.objects.get(conversation=conv)
-        r = self.c.post(f"/api/proposals/{p.id}/resolve", json.dumps({"approve": True}),
-                        content_type="application/json")
-        self.assertEqual(r.status_code, 200, r.content[:200])
-        made = Setting.objects.get(title="黄昏")
-        self.assertEqual(made.folder_id, folder.id)
-        self.assertIn(made.id, set(conv.selected_settings.values_list("id", flat=True)))
-        self.assertIn("黄昏", library.as_prompt_text(library.selection_for(conv)))
-
-    def test_a_conversation_entry_can_be_promoted_and_shadows_until_then(self):
+    def test_both_layers_are_listed_to_the_lead_and_a_conversation_entry_can_be_promoted(self):
         folder = Folder.objects.create(name="项目")
         conv = self._conv(folder)
         project = Setting.objects.create(folder=folder, title="画风", content="厚涂")
         own = Setting.objects.create(conversation=conv, title="画风", content="水彩")
         conv.selected_settings.add(project, own)
-        sel = library.selection_for(conv)
-        # the nearer one wins, and only one of them is sent
-        self.assertEqual([s.content for s in sel.settings], ["水彩"])
+        # two keys, two layers: both are read, each said to be where it is
+        text = library.as_prompt_text(library.selection_for(conv))
+        self.assertIn("厚涂", text)
+        self.assertIn("水彩", text)
+        self.assertIn(wording.ENTRY_FROM_PROJECT, text)
+        self.assertIn(wording.ENTRY_FROM_USER, text)
+        self.assertIn(P + "画风", text)
 
         r = self.c.post(f"/api/settings/{own.id}/promote")
         self.assertEqual(r.status_code, 400, "the project already has that title")
@@ -388,8 +596,8 @@ class WorkflowTests(TestCase):
         mine = Character.objects.create(conversation=conv, name="林", description="对话里的")
         turn = Message.objects.create(conversation=conv, seq=1, role="assistant", status="done")
         p = LibraryProposal.objects.create(conversation=conv, folder=folder, message=turn, payload={
-            "settings": [{"title": "画风", "content": "新的", "scope": "project"}],
-            "characters": [{"name": "林", "description": "新的", "scope": "project"}],
+            "settings": [_lead_setting(P + "画风", note="新的")],
+            "characters": [_lead_character(P + "林", note="新的")],
         })
         r = self.c.post(f"/api/proposals/{p.id}/resolve", json.dumps({"approve": True}),
                         content_type="application/json")
@@ -408,8 +616,8 @@ class WorkflowTests(TestCase):
 
     def test_the_project_page_does_not_list_a_conversation_entry_written_inside_it(self):
         """An entry the lead wrote for a conversation that sits in the project
-        carries the project's folder; the project page used to list and edit
-        it as the project's own, and refuse a project entry of that title."""
+        is not the project's own; the project page used to list and edit it
+        as such, and refuse a project entry of that title."""
         folder = Folder.objects.create(name="项目")
         conv = self._conv(folder)
         Setting.objects.create(conversation=conv, title="雨夜", content="本对话的")
@@ -428,480 +636,201 @@ class WorkflowTests(TestCase):
         conv = self._conv(folder)
         Character.objects.create(folder=folder, name="林")
         r = self.c.post(f"/api/conversations/{conv.id}/characters",
-                        json.dumps({"name": "猫", "tags": [{"part": "身份", "tags": "cat"}]}),
+                        json.dumps({"name": "猫", "positive": "cat, orange cat", "prose": "A cat."}),
                         content_type="application/json")
         self.assertEqual(r.status_code, 201, r.content[:200])
-        self.assertEqual(r.json()["tags"][0]["id"], "k1")
+        self.assertEqual((r.json()["positive"], r.json()["prose"]), (["cat", "orange cat"], "A cat."))
+        self.assertEqual([v["title"] for v in r.json()["variants"]], [ui_text.DEFAULT_VARIANT_TITLE])
         payload = self.c.get(f"/api/conversations/{conv.id}/selection").json()
         names = {(c["name"], c["conversation_id"] is not None) for c in payload["characters"]}
         self.assertEqual(names, {("林", False), ("猫", True)})
 
-    # ------------------------------------------------------------ lines
+    def test_a_character_recorded_without_a_costume_is_still_drawn_from(self):
+        """A cat has no clothes, and the lead recorded none. The selection is
+        made of costumes, so she would be invisible to both models; the write
+        gives her the default costume."""
+        conv = self._conv()
+        library.write_conversation_entries(
+            conv, 1, [], [_lead_character("橘白猫", "cat, orange cat, white fur", note="橘白相间的猫")])
+        cat = Character.objects.get(name="橘白猫", conversation=conv)
+        self.assertEqual([v.title for v in cat.variants.all()], [ui_text.DEFAULT_VARIANT_TITLE])
+        self.assertEqual([v.title for v in conv.selected_variants.all()], [ui_text.DEFAULT_VARIANT_TITLE])
+        text = library.as_prompt_text(library.selection_for(conv))
+        self.assertIn("橘白猫", text)
+        self.assertIn("orange cat", text)
+        got = library.resolve_exposure(conv, ["橘白猫"])
+        self.assertEqual(got.keys, ["橘白猫"])
+        made = assemble.assemble(got.entries, assemble.clean_answer({"subjects": [{"key": "橘白猫"}]}))
+        self.assertEqual([c["prompt"] for c in made["nai_prompts"]["character_prompts"]], ["cat, orange cat, white fur"])
 
-    def test_line_ids_survive_an_edit_of_the_entry(self):
-        old = [{"id": "k1", "part": "身份", "tags": "1girl"}, {"id": "k2", "part": "头发", "tags": "black hair"}]
-        new = [{"part": "头发", "tags": "black hair, long hair"}, {"part": "身份", "tags": "1girl"},
-               {"part": "眼睛", "tags": "brown eyes"}]
-        out = library.assign_ids(old, new, "k")
-        self.assertEqual([(ln["part"], ln["id"]) for ln in out], [("头发", "k2"), ("身份", "k1"), ("眼睛", "k3")])
-
-    def test_a_renamed_line_keeps_its_id_when_it_says_the_same_thing(self):
-        old = [{"id": "k7", "part": "发", "tags": "black hair, long hair"}]
-        out = library.assign_ids(old, [{"part": "头发", "tags": "black hair, long hair, bangs"}], "k")
-        self.assertEqual(out[0]["id"], "k7")
-
-    def test_words_are_copied_from_the_picture_not_from_memory(self):
-        lines, dropped = library.copied_lines(
-            "1girl, kaname raana, moss green robe",
-            [{"part": "身份", "tags": "1girl, kaname_raana"}, {"part": "长袍", "tags": "moss green robe, hood"}],
-        )
-        self.assertEqual([ln["tags"] for ln in lines], ["1girl, kaname raana", "moss green robe"])
-        self.assertEqual(dropped, ["hood"])
-
-    def test_an_edit_can_add_a_subject_and_drop_one(self):
-        picture = prompt_slots.upgrade({"size": "portrait", "slots": {
-            "count": {"tags": "1girl, solo", "prose": ""}, "scene": {"tags": "library", "prose": ""}, "text": ""},
-            "characters": [{"key": "林", "from": "林", "use": ["k1"], "patches": [],
-                            "look": {"tags": "", "prose": ""}, "moment": {"tags": "standing", "prose": ""},
-                            "center_x": None, "center_y": None}], "negative": ""})
-        out = prompt_slots.apply(picture, {
-            "count": {"tags": {"set": "1girl, 1other"}},
-            "characters": [{"from": "", "look": {"tags": {"set": "white cat"}},
-                            "moment": {"tags": {"set": "sitting on shelf, looking at viewer"}}}],
+    def test_the_lead_is_shown_each_subjects_negative_but_not_the_default_one(self):
+        text = drawnote.describe_prompts({
+            "base_prompt": "1girl",
+            "character_prompts": [{"key": "林", "prompt": "black hair", "negative": "child"}],
+            "negative_prompt": novelai.merge_negative("blurry, text"),
         })
-        self.assertEqual([c["key"] for c in out["characters"]], ["林", "主体2"])
-        cat = out["characters"][1]
-        self.assertEqual(cat["from"], "")
-        self.assertEqual(cat["look"]["tags"], "white cat")
-        self.assertEqual(cat["moment"]["tags"], "sitting on shelf, looking at viewer")
-        self.assertEqual(out["characters"][0], picture["characters"][0])
-        rendered = prompt_slots.render(out, {"林": {"k1": "1girl, black hair"}})
-        self.assertEqual([c["prompt"] for c in rendered["character_prompts"]],
-                         ["1girl, black hair, standing", "white cat, sitting on shelf, looking at viewer"])
-        # a library subject joins under its entry name
-        out2 = prompt_slots.apply(out, {"characters": [{"from": "猫", "use": {"set": "k1, k2"}}]})
-        self.assertEqual(out2["characters"][2]["key"], "猫")
-        self.assertEqual(out2["characters"][2]["use"], ["k1", "k2"])
-        # and leaves again
-        out3 = prompt_slots.apply(out2, {"characters": [{"from": "主体2", "drop": True}]})
-        self.assertEqual([c["key"] for c in out3["characters"]], ["林", "猫"])
-        with self.assertRaises(prompt_slots.PatchRejected):
-            prompt_slots.apply(out3, {"characters": [{"from": "主体2", "drop": True}]})
-        # an item that names no subject and brings nothing is still rejected
-        with self.assertRaises(prompt_slots.PatchRejected):
-            prompt_slots.apply(out3, {"characters": [{"from": "谁"}]})
-
-    def test_an_edit_can_bind_a_nameless_subject_to_an_entry(self):
-        picture = prompt_slots.upgrade({"size": "portrait", "slots": {
-            "count": {"tags": "1girl", "prose": ""}, "text": ""},
-            "characters": [{"key": "主体1", "from": "", "use": [], "patches": [],
-                            "look": {"tags": "wakaba mutsumi", "prose": ""},
-                            "moment": {"tags": "reclining", "prose": ""},
-                            "center_x": None, "center_y": None}], "negative": ""})
-        lines = {"若叶睦": {"k1": "1girl, wakaba_mutsumi", "v1": "tsukinomori_school_uniform"}}
-        # before the binding the ids name lines in no book: nothing reaches NovelAI
-        unbound = prompt_slots.apply(picture, {"characters": [{"from": "主体1", "use": {"set": "k1, v1"}}]})
-        self.assertEqual(prompt_slots.render(unbound, lines)["character_prompts"][0]["prompt"],
-                         "wakaba mutsumi, reclining")
-        self.assertTrue(any("没有对应条目的主体" in n for n in prompt_slots.check(unbound, lines)))
-        bound = prompt_slots.apply(picture, {"characters": [
-            {"from": "主体1", "entry": "若叶睦", "use": {"set": "k1, v1"}, "look": {"tags": {"set": ""}}}]})
-        self.assertEqual(bound["characters"][0]["from"], "若叶睦")
-        self.assertEqual(bound["characters"][0]["key"], "主体1")
-        self.assertEqual(prompt_slots.render(bound, lines)["character_prompts"][0]["prompt"],
-                         "1girl, wakaba_mutsumi, tsukinomori_school_uniform, reclining")
-        self.assertEqual(prompt_slots.check(bound, lines), [])
-
-    def test_a_sentence_in_a_tags_half_is_noted(self):
-        picture = prompt_slots.upgrade({"size": "portrait", "slots": {
-            "count": {"tags": "1girl", "prose": ""},
-            "scene": {"tags": "street, The sign hangs over the door.", "prose": ""}, "text": ""},
-            "characters": [{"key": "主体1", "from": "", "use": [], "patches": [],
-                            "look": {"tags": "black hair", "prose": ""},
-                            "moment": {"tags": "standing, She looks up.", "prose": ""},
-                            "center_x": None, "center_y": None}], "negative": ""})
-        notes = prompt_slots.check(picture, {})
-        self.assertTrue(any("scene的tags半边里写了句子" in n for n in notes), notes)
-        self.assertTrue(any("主体1的moment的tags半边里写了句子" in n for n in notes), notes)
-        # and the prompt still goes out as a tag list without the stop
-        out = prompt_slots.render(picture, {})
-        self.assertEqual(prompt_slots.lint(out, picture), [])
-        self.assertIn("street, The sign hangs over the door, ", out["base_prompt"] + ", ")
-
-    def test_the_line_writer_answering_with_no_lines_leaves_the_entry_alone(self):
-        from core.services import library_lines
-        conv = self._conv()
-        r = self.c.post(f"/api/conversations/{conv.id}/characters",
-                        json.dumps({"name": "林", "description": "黑发女孩",
-                                    "tags": [{"part": "身份", "tags": "1girl, black hair"}]}),
-                        content_type="application/json")
-        self.assertEqual(r.status_code, 201, r.content[:200])
-        ch = Character.objects.get(name="林", conversation=conv)
-        before = ch.tags
-        with mock.patch.object(llm, "write_lines", return_value=([], {})):
-            self.assertFalse(library_lines.write(ch))
-        ch.refresh_from_db()
-        self.assertEqual(ch.tags, before)
-
-    def test_a_shadow_copy_switches_on_only_the_costumes_that_were_on(self):
-        folder = Folder.objects.create(name="项目")
-        conv = self._conv(folder)
-        project = Character.objects.create(
-            folder=folder, name="林", description="黑发",
-            tags=[{"id": "k1", "part": "身份", "tags": "1girl"}])
-        a = CharacterVariant.objects.create(character=project, title="校服", position=1,
-                                            tags=[{"id": "v1", "part": "衬衫", "tags": "white shirt"}])
-        CharacterVariant.objects.create(character=project, title="便装", position=2,
-                                        tags=[{"id": "v2", "part": "T恤", "tags": "t-shirt"}])
-        conv.selected_variants.add(a)
-        asked = Message.objects.create(conversation=conv, seq=1, role="user", content="加眼镜")
-        proposals.record(conv, asked, {"settings": [], "characters": [{
-            "name": "林", "scope": "conversation",
-            "tags": [{"part": "身份", "tags": "1girl"}, {"part": "眼镜", "tags": "glasses"}],
-            "variants": [],
-        }]})
-        own = Character.objects.get(name="林", conversation=conv)
-        self.assertEqual([v.title for v in own.variants.order_by("position")], ["校服", "便装"])
-        on = {v.title for v in conv.selected_variants.filter(character=own)}
-        self.assertEqual(on, {"校服"})
-
-    def test_a_costumes_identity_lines_all_move_to_the_character(self):
-        conv = self._conv()
-        r = self.c.post(f"/api/conversations/{conv.id}/characters",
-                        json.dumps({"name": "林", "tags": [{"part": "身份", "tags": "1girl"}]}),
-                        content_type="application/json")
-        self.assertEqual(r.status_code, 201, r.content[:200])
-        asked = Message.objects.create(conversation=conv, seq=1, role="user", content="记")
-        proposals.record(conv, asked, {"settings": [], "characters": [{
-            "name": "林", "scope": "conversation", "tags": [],
-            "variants": [{"title": "校服", "tags": [
-                {"part": "身份", "tags": "wakaba_mutsumi"}, {"part": "身份", "tags": "1girl"},
-                {"part": "衬衫", "tags": "white shirt"}]}],
-        }]})
-        own = Character.objects.get(name="林", conversation=conv)
-        parts = [(ln["part"], ln["tags"]) for ln in own.tags]
-        self.assertIn(("身份", "wakaba_mutsumi"), parts)
-        self.assertEqual(parts.count(("身份", "1girl")), 1)
-        costume = own.variants.get(title="校服")
-        self.assertEqual([ln["part"] for ln in costume.tags], ["衬衫"])
-
-    def test_copy_from_reads_the_lines_the_picture_was_drawn_with(self):
-        conv = self._conv()
-        r = self.c.post(f"/api/conversations/{conv.id}/characters",
-                        json.dumps({"name": "林", "tags": [{"part": "身份", "tags": "1girl, black hair"}]}),
-                        content_type="application/json")
-        self.assertEqual(r.status_code, 201, r.content[:200])
-        snap = {"settings": [], "characters": [{
-            "id": "x", "name": "林", "layer": "conversation",
-            "tags": [{"id": "k1", "part": "身份", "tags": "1girl, red hair"}], "variants": []}]}
-        Message.objects.create(
-            conversation=conv, seq=1, role="assistant", nai_prompts={"draw_id": "abc123"},
-            selection_snapshot=snap,
-            prompt={**prompt_slots.empty(), "characters": [
-                {"key": "林", "from": "林", "use": ["k1"], "patches": [], "look": "",
-                 "moment": "standing", "center_x": None, "center_y": None}]})
-        # the entry says black hair now; the picture was drawn with red hair
-        self.assertEqual(pipeline._source_tags(conv, 2, {"picture": "abc123", "subject": "林"}),
-                         "1girl, red hair")
-
-    def test_copy_from_for_a_setting_reads_the_pictures_style_and_scene(self):
-        conv = self._conv()
-        snap = {"settings": [{"id": "s", "title": "黄昏", "layer": "conversation",
-                              "tags": [{"id": "s1", "part": "画风", "tags": "painterly"},
-                                       {"id": "s2", "part": "天色", "tags": "sunset"}]}],
-                "characters": []}
-        pic = prompt_slots.empty()
-        pic["slots"]["style"] = {"tags": "film grain", "prose": ""}
-        pic["slots"]["scene"] = {"tags": "street", "prose": "The street is empty."}
-        pic["settings"] = [{"from": "黄昏", "use": ["s2"], "patches": []}]
-        Message.objects.create(conversation=conv, seq=1, role="assistant",
-                               nai_prompts={"draw_id": "abc123"}, selection_snapshot=snap, prompt=pic)
-        got = pipeline._source_tags(conv, 2, {"picture": "abc123"}, kind="setting")
-        self.assertEqual(got, "sunset, painterly, film grain, street, The street is empty.")
-
-    def test_the_lead_is_not_shown_the_default_negative(self):
-        from core.services import drawnote, novelai
-        text = drawnote.describe_prompts({"base_prompt": "1girl", "character_prompts": [],
-                                          "negative_prompt": novelai.merge_negative("blurry, text")})
         self.assertIn("negative_prompt: blurry, text", text)
+        self.assertIn("character[林] negative: child", text)
         self.assertNotIn("lowres", text)
 
-    def test_a_proposal_says_which_lines_an_update_dropped(self):
-        conv = self._conv()
-        r = self.c.post(f"/api/conversations/{conv.id}/settings",
-                        json.dumps({"title": "黄昏", "tags": [{"part": "天色", "tags": "sunset"},
-                                                              {"part": "云", "tags": "cloud"}]}),
-                        content_type="application/json")
-        self.assertEqual(r.status_code, 201, r.content[:200])
-        asked = Message.objects.create(conversation=conv, seq=1, role="user", content="改")
-        p = proposals.record(conv, asked, {"characters": [], "settings": [{
-            "title": "黄昏", "scope": "conversation", "tags": [{"part": "天色", "tags": "sunset, dusk"}]}]})
-        self.assertIn("「黄昏」少了1行：云", p.applied_summary)
-
-    def test_copy_from_that_points_at_nothing_is_said_on_the_row(self):
-        conv = self._conv()
-        msg = Message.objects.create(conversation=conv, seq=3, role="assistant", status="pending")
-        pipeline._resolve_copies(conv, msg, {"settings": [], "characters": [{
-            "name": "林", "scope": "conversation", "copy_from": {"picture": "nope", "subject": "林"},
-            "tags": [{"part": "身份", "tags": "1girl"}], "variants": []}]})
-        msg.refresh_from_db()
-        self.assertTrue(any("nope" in n and "找不到" in n for n in (msg.model_raw or {}).get("edit_notes") or []))
-
-    def test_the_rail_hides_a_project_entry_a_conversation_entry_shadows(self):
+    def test_the_rail_lists_both_layers_even_under_one_name(self):
+        """The lead is listed the project's 「@黄昏」 and the conversation's
+        「黄昏」 as two entries (library.selection_for), so the rail shows the
+        same two: what the lead can be told to expose, the person can see."""
         from core.views.projects import selection_payload
         folder = Folder.objects.create(name="项目")
         conv = self._conv(folder)
-        Setting.objects.create(folder=folder, title="黄昏", tags=[{"id": "s1", "part": "天色", "tags": "sunset"}])
-        Setting.objects.create(conversation=conv, title="黄昏",
-                               tags=[{"id": "s1", "part": "天色", "tags": "dusk"}])
-        Setting.objects.create(folder=folder, title="雨夜", tags=[{"id": "s1", "part": "天气", "tags": "rain"}])
+        Setting.objects.create(folder=folder, title="黄昏", positive=["sunset"])
+        Setting.objects.create(conversation=conv, title="黄昏", positive=["dusk"])
+        Setting.objects.create(folder=folder, title="雨夜", positive=["rain"])
         titles = [(s["title"], bool(s.get("conversation_id"))) for s in selection_payload(conv)["settings"]]
-        self.assertEqual(sorted(titles), [("雨夜", False), ("黄昏", True)])
+        self.assertEqual(sorted(titles), [("雨夜", False), ("黄昏", False), ("黄昏", True)])
 
     def test_same_words_compares_what_novelai_receives_and_nothing_else(self):
-        a = {"base_prompt": "1girl, street", "character_prompts": [{"prompt": "black hair"}],
+        a = {"base_prompt": "1girl, street", "character_prompts": [{"prompt": "black hair", "negative": ""}],
              "negative_prompt": "", "n_images": 1, "draw_id": "aaa", "tier": "mid"}
         b = {"base_prompt": "1girl, street", "character_prompts": [{"prompt": "black hair", "center_x": None}],
              "negative_prompt": "", "n_images": 2, "draw_id": "bbb"}
         self.assertTrue(llm.same_words(a, b))
         self.assertFalse(llm.same_words(a, {**b, "base_prompt": "1girl, street, cloud"}))
         self.assertFalse(llm.same_words(a, {**b, "character_prompts": [{"prompt": "red hair"}]}))
+        self.assertFalse(llm.same_words(a, {**b, "character_prompts": [{"prompt": "black hair", "negative": "child"}]}),
+                         "a subject's negative is sent too")
         self.assertFalse(llm.same_words(a, None))
 
-    def test_a_sentence_is_copied_by_what_it_says_not_word_for_word(self):
-        source = ("orange cat, white fur, with a small lightning-shaped white patch above its left eye, "
-                  "and its tail tip is pure white")
-        lines, dropped = library.copied_lines(source, [
-            {"part": "毛色", "tags": "orange cat, white fur"},
-            {"part": "白斑", "tags": "a small white patch shaped like a lightning bolt above its left eye"},
-            {"part": "尾巴", "tags": "the tip of its tail is pure white"},
-            {"part": "眼睛", "tags": "amber eyes"},
-        ])
-        self.assertEqual([ln["tags"] for ln in lines], [
-            "orange cat, white fur",
-            "with a small lightning-shaped white patch above its left eye",
-            "and its tail tip is pure white",
-        ])
-        self.assertEqual(dropped, ["amber eyes"])
 
-    def test_a_character_recorded_without_a_costume_is_still_drawn_from(self):
-        """A cat has no clothes, and the lead recorded none. The selection
-        is made of costumes, so she was invisible to both models and never
-        drawn from her lines; the write gives her the default costume."""
-        conv = self._conv()
-        msg = Message.objects.create(conversation=conv, seq=1, role="assistant", content="")
-        proposals.record(conv, msg, {"settings": [], "characters": [{
-            "name": "橘白猫", "scope": "conversation", "description": "橘白相间的猫",
-            "tags": [{"part": "身份", "tags": "cat"}, {"part": "毛色", "tags": "orange cat, white fur"}],
-            "variants": [],
-        }]})
-        cat = Character.objects.get(name="橘白猫", conversation=conv)
-        self.assertEqual([v.title for v in cat.variants.all()], [ui_text.DEFAULT_VARIANT_TITLE])
-        sel = library.selection_for(conv)
-        self.assertIn("k2  毛色：orange cat, white fur", library.as_lines(sel))
-        self.assertIn("角色「橘白猫」", library.as_prompt_text(sel))
+class AssemblyTests(SimpleTestCase):
+    """What NovelAI gets out of the exposed entries and the drawing model's
+    answer: the one way the pieces go together."""
 
-    def test_an_outfits_lines_sent_as_the_characters_do_not_replace_her_own(self):
-        """Told to add a scarf to an outfit, the model sent the outfit's lines
-        as the character's tags too; her hair and eyes must survive that."""
-        conv = self._conv()
-        r = self.c.post(f"/api/conversations/{conv.id}/characters",
-                        json.dumps({"name": "夏树", "tags": [{"part": "身份", "tags": "1girl"},
-                                                           {"part": "头发", "tags": "black hair, ponytail"}]}),
-                        content_type="application/json")
-        self.assertEqual(r.status_code, 201, r.content[:200])
-        char = Character.objects.get(name="夏树", conversation=conv)
-        outfit = [{"part": "毛衣", "tags": "beige sweater"}, {"part": "围巾", "tags": "red scarf"}]
-        proposals._write_character(
-            {"name": "夏树", "tags": list(outfit), "variants": [{"title": "便服", "tags": outfit}]},
-            folder=None, conversation=conv, existing=char, done=[])
-        char.refresh_from_db()
-        self.assertEqual([(ln["part"], ln["id"]) for ln in char.tags], [("身份", "k1"), ("头发", "k2")])
-        self.assertEqual([ln["part"] for ln in char.variants.get(title="便服").tags], ["毛衣", "围巾"])
-
-    def test_copy_from_takes_a_line_drawn_subjects_lines_but_not_its_look(self):
-        """A library character's look is this picture's extras (wet hair), not
-        what she looks like; only a subject without lines carries its
-        appearance in look."""
-        conv = self._conv()
-        r = self.c.post(f"/api/conversations/{conv.id}/characters",
-                        json.dumps({"name": "林", "tags": [{"part": "身份", "tags": "1girl, black hair"}]}),
-                        content_type="application/json")
-        self.assertEqual(r.status_code, 201, r.content[:200])
-        Message.objects.create(
-            conversation=conv, seq=1, role="assistant", nai_prompts={"draw_id": "abc123"},
-            prompt={**prompt_slots.empty(), "characters": [
-                {"key": "林", "from": "林", "use": ["k1"], "patches": [], "look": "wet hair",
-                 "moment": "standing", "center_x": None, "center_y": None},
-                {"key": "路人", "from": "", "use": [], "patches": [], "look": "red hat",
-                 "moment": "walking", "center_x": None, "center_y": None},
-                {"key": "老人", "from": "", "use": [], "patches": [],
-                 "look": {"tags": "grey coat", "prose": "A rope is knotted at his waist."},
-                 "moment": "sitting", "center_x": None, "center_y": None},
-            ]})
-        self.assertEqual(pipeline._source_tags(conv, 2, {"picture": "abc123", "subject": "林"}),
-                         "1girl, black hair")
-        self.assertEqual(pipeline._source_tags(conv, 2, {"picture": "abc123", "subject": "路人"}),
-                         "red hat")
-        # a sentence is handed to the lead set apart from the tags, not glued on with a comma
-        self.assertEqual(pipeline._source_tags(conv, 2, {"picture": "abc123", "subject": "老人"}),
-                         "grey coat, A rope is knotted at his waist.")
-
-    def test_the_render_splices_lines_with_their_patches(self):
-        picture = {
-            **prompt_slots.empty(),
-            "characters": [{
-                "key": "林", "from": "林", "use": ["k1", "v1"],
-                "patches": [{"line": "v1", "remove": "open cardigan", "add": "unworn cardigan"}],
-                "look": "", "moment": "standing", "center_x": None, "center_y": None,
-            }],
-        }
-        lines = {"林": {"k1": "1girl, black hair", "v1": "blue cardigan, open cardigan"}}
-        out = prompt_slots.render(picture, lines)
-        self.assertEqual(out["character_prompts"][0]["prompt"],
-                         "1girl, black hair, blue cardigan, unworn cardigan, standing")
-
-    def test_a_change_list_may_not_add_to_a_fast_changing_slot(self):
-        picture = {**prompt_slots.empty(), "characters": []}
-        with self.assertRaises(prompt_slots.PatchRejected):
-            prompt_slots.apply(picture, {"camera": {"tags": {"add": "from above"}}})
-        # a slot's change is written in halves; a bare operation names neither
-        with self.assertRaises(prompt_slots.PatchRejected):
-            prompt_slots.apply(picture, {"camera": {"set": "from above"}})
-        # a sentence is added whole, never nudged a word at a time: `add` on
-        # prose appends a sentence (with its stop), and a word is not an op
-        added = prompt_slots.apply(picture, {"style": {"prose": {"add": "painted softly"}}})
-        self.assertEqual(added["slots"]["style"]["prose"], "painted softly.")
-        with self.assertRaises(prompt_slots.PatchRejected):
-            prompt_slots.apply(picture, {"style": {"prose": {"nudge": "softly"}}})
-        # a subject the picture does not have is added when the item brings
-        # one; an item that only names it, or drops it, is refused
-        with self.assertRaises(prompt_slots.PatchRejected):
-            prompt_slots.apply(picture, {"characters": [{"from": "nobody"}]})
-        with self.assertRaises(prompt_slots.PatchRejected):
-            prompt_slots.apply(picture, {"characters": [{"from": "nobody", "drop": True}]})
-        merged = prompt_slots.apply(picture, {
-            "style": {"tags": {"add": "film grain"}, "prose": {"set": "the paint is thick"}},
-            "negative": {"add": "text"},
+    def test_a_style_setting_leads_and_a_character_is_her_entry_plus_her_costume(self):
+        exposed = [
+            _exposed("图书馆", category="场景", positive=["library"], prose="Warm light comes through the window."),
+            _exposed("画风", category="画风", positive=["painterly"]),
+            _exposed("林", "character", positive=["1girl", "black hair"], negative=["child"]),
+            _exposed("林/校服", "variant", positive=["blue cardigan", "open cardigan"], negative=["long hair"]),
+        ]
+        answer = assemble.clean_answer({
+            "entries": [], "positive": "1girl, solo", "negative": "blurry", "prose": "She looks up.",
+            "subjects": [{"key": "林", "center_x": 0.3, "center_y": 0.6}], "size": "landscape",
         })
-        self.assertEqual(merged["slots"]["style"], {"tags": "film grain", "prose": "the paint is thick"})
-        self.assertEqual(merged["negative"], "text")
-
-    def test_sentences_go_out_after_every_slots_tags_and_are_never_cut(self):
-        """A sentence is a sentence because the model put it in prose: it goes
-        out whole, commas and all, after the tags of every slot."""
-        picture = prompt_slots.empty()
-        picture["slots"]["camera"] = {"tags": "from above", "prose": ""}
-        picture["slots"]["scene"] = {"tags": "library, indoors",
-                                     "prose": "the shelves are tall, dusty and full of books"}
-        picture["slots"]["light"] = {"tags": "backlighting", "prose": "light from the left"}
-        picture["slots"]["text"] = "Text: Closed"
-        out = prompt_slots.render(picture)
+        made = assemble.assemble(exposed, answer, text="Closed")
+        nai = made["nai_prompts"]
         self.assertEqual(
-            out["base_prompt"],
-            "from above, library, indoors, backlighting, "
-            "the shelves are tall, dusty and full of books. light from the left. Text: Closed")
+            nai["base_prompt"],
+            "1girl, solo, painterly, library, very aesthetic, masterpiece, "
+            "Warm light comes through the window. She looks up. Text: Closed")
+        self.assertEqual(nai["character_prompts"], [{
+            "key": "林", "prompt": "1girl, black hair, blue cardigan, open cardigan",
+            "negative": "child, long hair", "center_x": 0.3, "center_y": 0.6,
+        }])
+        self.assertEqual(nai["negative_prompt"], novelai.merge_negative("blurry"))
+        self.assertEqual(nai["size"], "landscape")
+        self.assertEqual([(r["key"], r["kind"], r["used"]) for r in made["assembly"]],
+                         [("图书馆", "setting", True), ("画风", "setting", True),
+                          ("林", "character", True), ("林/校服", "variant", True)])
+        # with no text to render the picture is told so, and in the tags, not after a text
+        plain = assemble.assemble(exposed, answer)["nai_prompts"]["base_prompt"]
+        self.assertIn(novelai.NO_TEXT_WORD, plain)
+        self.assertNotIn(assemble.TEXT_PREFIX, plain)
+        self.assertEqual(assemble.lint(nai), [])
 
-    def test_a_picture_from_before_prose_had_its_own_half_is_read_as_is(self):
-        """An older row: a string per slot and a note slot. Nothing is split or
-        moved -- the string is the tags, the note is other's prose."""
-        old = {"size": "portrait",
-               "slots": {"count": "1girl", "style": "", "camera": "", "scene": "library, a quiet room",
-                         "light": "", "other": "", "note": "She looks at the camera.", "text": ""},
-               "characters": [{"key": "林", "from": "林", "use": ["k1"], "patches": [],
-                               "look": "wet hair", "moment": "standing", "center_x": None, "center_y": None}],
-               "negative": "text"}
-        new = prompt_slots.upgrade(old)
-        self.assertEqual(new["slots"]["scene"], {"tags": "library, a quiet room", "prose": ""})
-        self.assertEqual(new["slots"]["other"], {"tags": "", "prose": "She looks at the camera."})
-        self.assertNotIn("note", new["slots"])
-        self.assertEqual(new["characters"][0]["look"], {"tags": "wet hair", "prose": ""})
-        self.assertEqual(new["settings"], [])
-        self.assertEqual(prompt_slots.upgrade(new), new)
-        out = prompt_slots.render(old, {"林": {"k1": "1girl, black hair"}})
-        self.assertEqual(out["base_prompt"], "1girl, library, a quiet room, She looks at the camera.")
-        self.assertEqual(out["character_prompts"][0]["prompt"], "1girl, black hair, wet hair, standing")
+    def test_a_settings_negative_goes_to_the_picture_and_a_subjects_to_the_subject(self):
+        exposed = [_exposed("夜景", positive=["night"], negative=["sunlight"]),
+                   _exposed("林", "character", positive=["1girl"], negative=["child"])]
+        answer = assemble.clean_answer({"subjects": [{"key": "林"}], "negative": "blurry"})
+        nai = assemble.assemble(exposed, answer)["nai_prompts"]
+        self.assertTrue(nai["negative_prompt"].startswith("sunlight, blurry, "))
+        self.assertNotIn("child", nai["negative_prompt"])
+        self.assertEqual(nai["character_prompts"][0]["negative"], "child")
+
+    def test_this_pictures_changes_to_an_entry_apply_here_only(self):
+        exposed = [
+            _exposed("林", "character", positive=["1girl", "black hair"], prose="Her hair is tied back."),
+            _exposed("林/校服", "variant", positive=["blue cardigan", "open cardigan"]),
+            _exposed("雨夜", positive=["rain", "night"], negative=["sunlight"]),
+        ]
+        change = {"use": True, "add_positive": "", "remove_positive": "", "add_negative": "", "remove_negative": "",
+                  "add_prose": "", "remove_prose": ""}
+        answer = assemble.clean_answer({
+            "entries": [
+                {**change, "key": "林/校服", "add_positive": "unworn cardigan", "remove_positive": "open cardigan"},
+                {**change, "key": "林", "add_positive": "sitting, looking at viewer",
+                 "remove_prose": "Her hair is tied back.", "add_prose": "Her hair is down."},
+                {**change, "key": "雨夜", "use": False},
+            ],
+            "positive": "1girl", "negative": "", "prose": "",
+            "subjects": [{"key": "林", "center_x": None, "center_y": None}], "size": "portrait",
+        })
+        made = assemble.assemble(exposed, answer)
+        nai = made["nai_prompts"]
+        self.assertEqual(nai["character_prompts"][0]["prompt"],
+                         "1girl, black hair, sitting, looking at viewer, blue cardigan, unworn cardigan, Her hair is down.")
+        self.assertNotIn("rain", nai["base_prompt"])
+        self.assertNotIn("sunlight", nai["negative_prompt"])
+        self.assertEqual([(r["key"], r["used"], r["positive"]) for r in made["assembly"]], [
+            ("林", True, ["1girl", "black hair", "sitting", "looking at viewer"]),
+            ("林/校服", True, ["blue cardigan", "unworn cardigan"]),
+            ("雨夜", False, ["rain", "night"]),
+        ])
+        # the entries themselves read as they did: nothing is written back
+        self.assertEqual(exposed[1]["positive"], ["blue cardigan", "open cardigan"])
+        self.assertEqual(exposed[0]["prose"], "Her hair is tied back.")
+
+    def test_a_sentence_this_picture_adds_comes_after_the_entrys_own_and_never_replaces_it(self):
+        """The drawing model writes a pose sentence for a subject; the entry's
+        own sentence (where the mole is, how the hair falls) is what keeps the
+        character the same person, so it stays unless the model says in so
+        many words that it does not hold for this picture."""
+        exposed = [_exposed("林", "character", positive=["1girl"],
+                            prose="The mole sits under her right eye.")]
+        change = {"key": "林", "use": True, "add_positive": "", "remove_positive": "", "add_negative": "",
+                  "remove_negative": "", "add_prose": "She looks back over her shoulder.", "remove_prose": ""}
+        made = assemble.assemble(exposed, assemble.clean_answer({"entries": [change], "subjects": [{"key": "林"}]}))
+        self.assertEqual(made["nai_prompts"]["character_prompts"][0]["prompt"],
+                         "1girl, The mole sits under her right eye. She looks back over her shoulder.")
+        self.assertEqual(made["assembly"][0]["prose"],
+                         "The mole sits under her right eye. She looks back over her shoulder.")
+        # and a model that answers in the old shape, or with nothing, changes nothing
+        kept = assemble.assemble(exposed, assemble.clean_answer({"entries": [{"key": "林", "prose": "x"}]}))
+        self.assertEqual(kept["assembly"][0]["prose"], "The mole sits under her right eye.")
+
+    def test_a_picture_takes_sentences_out_one_by_one_and_the_rest_stay(self):
+        """The hair is up in this picture, so the sentence about it falling
+        loose is taken out; where the mole sits still holds and stays. A
+        sentence named in part, without its stop, is still the sentence."""
+        exposed = [_exposed("林", "character", positive=["1girl"],
+                            prose="Her curls fall loose to her waist. The small mole sits under her right eye. "
+                                  "A thin scar crosses her left eyebrow.")]
+        change = {"key": "林", "use": True, "add_positive": "", "remove_positive": "", "add_negative": "",
+                  "remove_negative": "", "add_prose": "Her curls are pinned up in a bun.",
+                  "remove_prose": "Her curls fall loose to her waist. thin scar crosses her left eyebrow"}
+        made = assemble.assemble(exposed, assemble.clean_answer({"entries": [change], "subjects": [{"key": "林"}]}))
+        self.assertEqual(made["assembly"][0]["prose"],
+                         "The small mole sits under her right eye. Her curls are pinned up in a bun.")
+        # an answer in the earlier shape: true takes all of the entry's own
+        # sentences out, false none
+        old = assemble.clean_answer({"entries": [{**change, "remove_prose": True}]})
+        self.assertEqual(assemble.assemble(exposed, old)["assembly"][0]["prose"], "Her curls are pinned up in a bun.")
+        none = assemble.clean_answer({"entries": [{**change, "remove_prose": False, "add_prose": ""}]})
+        self.assertEqual(assemble.assemble(exposed, none)["assembly"][0]["prose"], exposed[0]["prose"])
+
+    def test_a_tag_written_twice_in_whatever_dressing_goes_out_once(self):
+        exposed = [_exposed("画风", category="画风", positive=["film grain", "{{rim light}}"]),
+                   _exposed("光", positive=["rim_light", "backlighting"])]
+        nai = assemble.assemble(exposed, assemble.clean_answer({"positive": "1girl, Film Grain"}))["nai_prompts"]
+        self.assertEqual(nai["base_prompt"],
+                         "1girl, Film Grain, {{rim light}}, backlighting, very aesthetic, masterpiece, no text")
 
     def test_the_unknown_tag_check_skips_the_pieces_of_a_sentence(self):
-        """A sentence with a comma in it is not several tags: with the picture
-        at hand the check leaves its pieces alone and reports only real tags."""
-        from core.services import llm
-        picture = prompt_slots.empty()
-        picture["slots"]["light"] = {"tags": "backlighting",
-                                     "prose": "warm light falls on her cheek, her right hand, and the book"}
-        rendered = prompt_slots.render(picture)
+        """A sentence with a comma in it is not several tags: with the turn's
+        record at hand the check leaves its pieces alone."""
+        exposed = [_exposed("光", positive=["backlighting"],
+                            prose="warm light falls on her cheek, her right hand, and the book")]
+        made = assemble.assemble(exposed, assemble.clean_answer({}))
+        # the index stands in for itself here, so the default negative is left out of the question
+        nai = {**made["nai_prompts"], "negative_prompt": ""}
         with mock.patch.object(llm.danbooru, "unknown", side_effect=lambda tags: list(tags)):
-            self.assertEqual(llm.unknown_tags(rendered, picture), ["backlighting"])
-            # without the picture the short pieces of the sentence are taken for tags
-            self.assertIn("her right hand", llm.unknown_tags(rendered))
-
-    def test_a_picture_may_patch_a_style_line_for_itself_only(self):
-        """The style slot is filled from the entry every time; a picture's
-        patches on the style line change that picture alone, and an edit of a
-        spliced picture is spliced again from the entry, so a remove is not
-        undone by the words the previous picture carried."""
-        style_lines = {"画风": {"s1": "painterly, muted colors, film grain"}}
-        setting_lines = {"画风": {"s1": "painterly, muted colors, film grain"}}
-        base = lambda pic: prompt_slots.render(pic, None, setting_lines, style_lines)["base_prompt"]  # noqa: E731
-        first = prompt_slots.empty()
-        first["slots"]["style"] = {"tags": "sketch lines", "prose": ""}
-        self.assertEqual(base(first), "painterly, muted colors, film grain, sketch lines")
-        # the picture keeps only the model's own words; the entry's go in at render
-        self.assertEqual(first["slots"]["style"]["tags"], "sketch lines")
-        # an edit of it: patch the style line, keep the model's own word
-        second = prompt_slots.apply(first, {"settings": {"set": [
-            {"from": "画风", "use": "", "patches": [{"line": "s1", "remove": "muted colors", "add": "vivid colors"}]}]}})
-        self.assertEqual(base(second), "painterly, film grain, vivid colors, sketch lines")
-        # a whole other style for one picture: set
-        third = prompt_slots.apply(second, {"settings": {"set": [
-            {"from": "画风", "use": "", "patches": [{"line": "s1", "set": "pencil sketch, monochrome"}]}]}})
-        self.assertEqual(base(third), "pencil sketch, monochrome, sketch lines")
-        # the patches dropped: back to the entry's line
-        fourth = prompt_slots.apply(third, {"settings": {"set": []}})
-        self.assertEqual(base(fourth), "painterly, muted colors, film grain, sketch lines")
-        # a picture stored with the lines already in its style slot (the shape
-        # before this) renders the same, and a remove on it still takes
-        legacy = prompt_slots.empty()
-        legacy["slots"]["style"] = {"tags": "painterly, muted colors, film grain, sketch lines", "prose": ""}
-        self.assertEqual(base(legacy), "painterly, muted colors, film grain, sketch lines")
-        self.assertEqual(base(prompt_slots.apply(legacy, {"settings": {"set": [
-            {"from": "画风", "use": "", "patches": [{"line": "s1", "remove": "muted colors"}]}]}})),
-            "painterly, film grain, sketch lines")
-        # a patch on a line the setting does not have is reported
-        notes = prompt_slots.check(third, None, None, {"画风": {"s2": "x"}})
-        self.assertTrue(any("s1" in n for n in notes), notes)
-
-    def test_a_settings_picked_lines_are_spliced_and_its_style_lines_come_by_themselves(self):
-        picture = prompt_slots.empty()
-        picture["slots"]["scene"] = {"tags": "indoors", "prose": ""}
-        picture["settings"] = [{"from": "图书馆", "use": ["s2"]}]
-        setting_lines = {"图书馆": {"s1": "painterly", "s2": "dark wood bookshelves, old books"}}
-        out = prompt_slots.render(picture, None, setting_lines)
-        self.assertEqual(out["base_prompt"], "dark wood bookshelves, old books, indoors")
-        notes = prompt_slots.check(picture, None, None, {"图书馆": {"s1": "painterly"}})
-        self.assertTrue(any("s2" in n for n in notes), notes)
-        merged = prompt_slots.apply(picture, {"settings": {"set": [{"from": "图书馆", "use": "s1, s2"}]}})
-        self.assertEqual(merged["settings"], [{"from": "图书馆", "use": ["s1", "s2"], "patches": []}])
-        with self.assertRaises(prompt_slots.PatchRejected):
-            prompt_slots.apply(picture, {"settings": {"add": "s1"}})
-
-    def test_use_is_rewritten_whole_never_nudged(self):
-        picture = {
-            **prompt_slots.empty(),
-            "characters": [{"key": "林", "from": "林", "use": ["k1", "v5"], "patches": [],
-                            "look": "", "moment": "", "center_x": None, "center_y": None}],
-        }
-        with self.assertRaises(prompt_slots.PatchRejected):
-            prompt_slots.apply(picture, {"characters": [{"from": "林", "use": {"remove": "v5"}}]})
-        merged = prompt_slots.apply(picture, {"characters": [{"from": "林", "use": {"set": "k1"}}]})
-        self.assertEqual(merged["characters"][0]["use"], ["k1"])
-
-    def test_the_check_names_a_missing_identity_line(self):
-        picture = {
-            **prompt_slots.empty(),
-            "characters": [{"key": "林", "from": "林", "use": ["k2"], "patches": [],
-                            "look": "", "moment": "", "center_x": None, "center_y": None}],
-        }
-        notes = prompt_slots.check(picture, {"林": {"k1": "1girl", "k2": "black hair"}},
-                                   {"林": {"k1": "身份", "k2": "头发"}})
-        self.assertTrue(any("身份" in n for n in notes), notes)
+            self.assertEqual(llm.unknown_tags(nai, made["assembly"]), ["backlighting"])
+            # without the record the short pieces of the sentence are taken for tags
+            self.assertIn("her right hand", llm.unknown_tags(nai))

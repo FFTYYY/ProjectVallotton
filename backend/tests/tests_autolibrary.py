@@ -11,6 +11,11 @@ the three modes:
 A test per mode would pass just as well if the automatic path had grown its
 own way of writing to the library, which is the failure that would actually
 hurt.
+
+A proposal is the lead's edit to the PROJECT layer; the conversation's own
+entries never come here (library.write_conversation_entries writes those at
+once). The payload is the lead's edits as it wrote them: entries keyed by
+name, the project's with the @ prefix.
 """
 
 from __future__ import annotations
@@ -29,11 +34,34 @@ from core.models import (
     Message,
     Setting,
 )
-from core.services import gensettings, pipeline, proposals
-
-from .tests import _project
+from core.services import gensettings, library, pipeline, proposals
 
 TEST_CREDS = {"APP_USERNAME": "yyy", "APP_PASSWORD": "pw"}
+
+#: the project layer's prefix, as the lead writes it on an edit
+P = library.PROJECT_PREFIX
+
+
+def _setting(key: str, note: str = "", **more) -> dict:
+    return {"key": key, "note": note, "positive": "", "negative": "", "prose": "", "category": "", **more}
+
+
+def _variant(key: str, note: str = "", **more) -> dict:
+    return {"key": key, "note": note, "positive": "", "negative": "", "prose": "", **more}
+
+
+def _character(key: str, note: str = "", variants: list[dict] | None = None, **more) -> dict:
+    return {"key": key, "note": note, "positive": "", "negative": "", "prose": "",
+            "variants": list(variants or []), **more}
+
+
+def _edits(settings: list[dict] | None = None, characters: list[dict] | None = None) -> dict:
+    return {"settings": list(settings or []), "characters": list(characters or [])}
+
+
+def _lead(edits: dict | None) -> dict:
+    """A lead answer that wrote nothing of its own and proposed `edits`."""
+    return {"reply": "", "settings": [], "characters": [], "edits": edits, "draw": None}
 
 
 class AutoLibraryTests(TestCase):
@@ -49,15 +77,11 @@ class AutoLibraryTests(TestCase):
 
     def _propose(self, edits: dict) -> LibraryProposal:
         return LibraryProposal.objects.create(
-            conversation=self.conv, message=self.msg, folder=self.folder,
-            payload=_project(edits),
+            conversation=self.conv, message=self.msg, folder=self.folder, payload=edits,
         )
 
-    EDIT_ONLY = _project({"settings": [{"title": "黄昏之城", "content": "新的内容"}],
-                          "characters": []})
-    HAS_NEW = _project({"settings": [{"title": "黄昏之城", "content": "新的内容"},
-                                     {"title": "从没有过的设定", "content": "x"}],
-                        "characters": []})
+    EDIT_ONLY = _edits(settings=[_setting(P + "黄昏之城", "新的内容")])
+    HAS_NEW = _edits(settings=[_setting(P + "黄昏之城", "新的内容"), _setting(P + "从没有过的设定", "x")])
 
     # ------------------------------------------------------------ the promises
 
@@ -90,6 +114,7 @@ class AutoLibraryTests(TestCase):
 
         self.assertEqual(by_hand.status, by_app.status)
         self.assertEqual(by_hand.applied_summary, by_app.applied_summary)
+        self.assertEqual(by_hand.applied_summary, ui_text.PROPOSAL_UPDATED_SETTING.format(title="黄昏之城"))
 
     def test_when_it_will_not_act_the_proposal_is_exactly_as_it_was(self):
         """
@@ -117,6 +142,15 @@ class AutoLibraryTests(TestCase):
         self.assertTrue(proposals.auto_approve(p, "edits"))
         self.assertEqual(Setting.objects.get(title="黄昏之城").content, "新的内容")
 
+    def test_an_edit_writes_the_whole_entry_and_keeps_the_note_it_left_blank(self):
+        Setting.objects.filter(title="黄昏之城").update(positive=["dusk"], negative=["sun"], prose="Old.", category="光")
+        p = self._propose(_edits(settings=[_setting(P + "黄昏之城", positive="sunset, pink sky", prose="New.")]))
+        self.assertTrue(proposals.auto_approve(p, "edits"))
+        got = Setting.objects.get(title="黄昏之城")
+        self.assertEqual((got.content, got.positive, got.negative, got.prose, got.category),
+                         ("旧的内容", ["sunset", "pink sky"], [], "New.", "光"))
+        self.assertFalse(got.lines_stale, "the lead wrote the tags itself; the patrol is not owed a look")
+
     def test_edits_only_refuses_the_whole_proposal_when_any_of_it_is_new(self):
         """
         The whole thing waits, not the new parts. Splitting it would mean the
@@ -137,21 +171,20 @@ class AutoLibraryTests(TestCase):
         already decided that entry belongs. It cannot become the
         duplicate-under-another-name that waiting for a person prevents.
         """
-        p = self._propose({
-            "settings": [],
-            "characters": [{"name": "莉拉", "variants": [
-                {"title": "新的变体", "content": "x"}]}],
-        })
+        p = self._propose(_edits(characters=[_character(P + "莉拉", variants=[_variant("新的变体", "x")])]))
         self.assertTrue(proposals.auto_approve(p, "edits"))
         self.assertTrue(CharacterVariant.objects.filter(title="新的变体").exists())
 
+    def test_a_costume_may_be_keyed_the_way_the_lead_names_it(self):
+        """The lead writes a costume's key as 角色/造型; the bare title is read too."""
+        p = self._propose(_edits(characters=[_character(P + "莉拉", variants=[
+            _variant(P + "莉拉" + library.VARIANT_SEP + "雨衣", "x", positive="yellow raincoat")])]))
+        self.assertTrue(proposals.auto_approve(p, "edits"))
+        self.assertEqual(CharacterVariant.objects.get(title="雨衣").positive, ["yellow raincoat"])
+
     def test_edits_only_still_refuses_a_costume_on_a_character_that_is_not(self):
         """The character itself is the new entry; its costume comes with it."""
-        p = self._propose({
-            "settings": [],
-            "characters": [{"name": "没有这个人", "variants": [
-                {"title": "常服", "content": "x"}]}],
-        })
+        p = self._propose(_edits(characters=[_character(P + "没有这个人", variants=[_variant("常服", "x")])]))
         self.assertFalse(proposals.auto_approve(p, "edits"))
         self.assertFalse(Character.objects.filter(name="没有这个人").exists())
 
@@ -212,22 +245,56 @@ class AutoLibraryTests(TestCase):
     def test_a_turn_with_the_setting_on_leaves_nothing_to_approve(self):
         gensettings.merge(self.conv, {"auto_library": "edits"})
         self.conv.refresh_from_db()
-        pipeline._record_proposal(
-            self.conv, self.msg, _project({"settings": [{"title": "黄昏之城", "content": "新的"}]})
-        )
+        pipeline._write_library(self.conv, self.msg, _lead(_edits(settings=[_setting(P + "黄昏之城", "新的")])))
         p = LibraryProposal.objects.filter(conversation=self.conv).first()
         assert p is not None
         self.assertEqual(p.status, "applied")
         self.assertEqual(Setting.objects.get(title="黄昏之城").content, "新的")
 
     def test_a_turn_with_it_off_leaves_the_proposal_waiting(self):
-        pipeline._record_proposal(
-            self.conv, self.msg, _project({"settings": [{"title": "黄昏之城", "content": "新的"}]})
-        )
+        pipeline._write_library(self.conv, self.msg, _lead(_edits(settings=[_setting(P + "黄昏之城", "新的")])))
         p = LibraryProposal.objects.filter(conversation=self.conv).first()
         assert p is not None
         self.assertEqual(p.status, "pending")
         self.assertEqual(Setting.objects.get(title="黄昏之城").content, "旧的内容")
+
+    def test_a_turn_draws_from_the_edit_whether_or_not_it_was_approved(self):
+        """The edit comes before the exposure: what this turn hands back is
+        the overlay the picture is drawn from, approved or still waiting."""
+        edit = _setting(P + "黄昏之城", "新的", positive="dusk")
+        overlay = pipeline._write_library(self.conv, self.msg, _lead(_edits(settings=[edit])))
+        self.assertEqual(overlay, {"黄昏之城": edit})
+        self.assertEqual(LibraryProposal.objects.get(conversation=self.conv).status, "pending")
+        gensettings.merge(self.conv, {"auto_library": "all"})
+        self.conv.refresh_from_db()
+        overlay = pipeline._write_library(self.conv, self.msg, _lead(_edits(settings=[_setting(P + "黄昏之城", "更新的")])))
+        self.assertEqual(set(overlay), {"黄昏之城"})
+        self.assertEqual(Setting.objects.get(title="黄昏之城").content, "更新的")
+
+    def test_an_edit_that_restates_the_entry_raises_no_proposal(self):
+        """The lead now and then writes an entry it can already see back out
+        unchanged; that is not a card the user should have to dismiss."""
+        Setting.objects.filter(title="黄昏之城").update(positive=["dusk"])
+        same = _setting(P + "黄昏之城", "旧的内容", positive="dusk")
+        blank_note = _setting(P + "黄昏之城", positive="dusk")
+        for edit in (same, blank_note):
+            overlay = pipeline._write_library(self.conv, self.msg, _lead(_edits(settings=[edit])))
+            self.assertEqual(overlay, {})
+            self.assertFalse(LibraryProposal.objects.filter(conversation=self.conv).exists())
+        # a word of difference is a proposal
+        pipeline._write_library(self.conv, self.msg, _lead(_edits(settings=[_setting(P + "黄昏之城", positive="dusk, haze")])))
+        self.assertEqual(LibraryProposal.objects.filter(conversation=self.conv).count(), 1)
+
+    def test_outside_a_project_an_edit_is_written_into_the_conversation(self):
+        loose = Conversation.objects.create(title="没有文件夹")
+        msg = Message.objects.create(conversation=loose, seq=4, role="assistant", status="done", content="")
+        overlay = pipeline._write_library(loose, msg, _lead(_edits(settings=[_setting(P + "雨夜", "雨", positive="rain")])))
+        self.assertEqual(overlay, {})
+        self.assertFalse(LibraryProposal.objects.filter(conversation=loose).exists())
+        made = Setting.objects.get(title="雨夜")
+        self.assertEqual((made.conversation_id, made.folder_id, made.origin_seq, made.positive),
+                         (loose.id, None, 4, ["rain"]))
+        self.assertIn(made.id, set(loose.selected_settings.values_list("id", flat=True)))
 
     def test_the_proposal_is_written_down_before_anything_is_decided(self):
         """
@@ -236,13 +303,12 @@ class AutoLibraryTests(TestCase):
         """
         import inspect
 
-        from core.services import proposals
-
-        src = inspect.getsource(pipeline._record_proposal)
+        src = inspect.getsource(pipeline._commit_library)
         self.assertLess(src.index("proposals.record"), src.index("auto_approve"))
-        # and inside record(): the row exists before any layer is written
+        # and record() writes the row and nothing else: no layer is touched
         src = inspect.getsource(proposals.record)
-        self.assertLess(src.index("LibraryProposal.objects.create"), src.index("apply_layer"))
+        self.assertIn("LibraryProposal.objects.create", src)
+        self.assertNotIn("apply", src)
 
 
 class WhatIsCreatedUnderAllIsInPlayTests(TestCase):
@@ -270,8 +336,7 @@ class WhatIsCreatedUnderAllIsInPlayTests(TestCase):
 
     def _p(self, payload):
         return LibraryProposal.objects.create(
-            conversation=self.conv, message=self.msg, folder=self.folder,
-            payload=_project(payload),
+            conversation=self.conv, message=self.msg, folder=self.folder, payload=payload,
         )
 
     def _chosen(self):
@@ -281,22 +346,19 @@ class WhatIsCreatedUnderAllIsInPlayTests(TestCase):
         )
 
     def test_a_new_setting_is_switched_on(self):
-        proposals.auto_approve(self._p(
-            {"settings": [{"title": "新设定", "content": "x"}]}), "all")
+        proposals.auto_approve(self._p(_edits(settings=[_setting(P + "新设定", "x")])), "all")
         settings, _ = self._chosen()
         self.assertIn("新设定", settings)
 
     def test_a_new_costume_is_switched_on(self):
-        proposals.auto_approve(self._p({"characters": [
-            {"name": "已有角色", "variants": [{"title": "新变体", "content": "x"}]}]}),
-            "all")
+        proposals.auto_approve(self._p(_edits(characters=[
+            _character(P + "已有角色", variants=[_variant("新变体", "x")])])), "all")
         _, variants = self._chosen()
         self.assertIn("新变体", variants)
 
     def test_a_whole_new_character_arrives_wearing_something(self):
-        proposals.auto_approve(self._p({"characters": [
-            {"name": "新角色", "description": "x",
-             "variants": [{"title": "常服", "content": "x"}]}]}), "all")
+        proposals.auto_approve(self._p(_edits(characters=[
+            _character(P + "新角色", "x", variants=[_variant("常服", "x")])])), "all")
         _, variants = self._chosen()
         self.assertIn("常服", variants)
 
@@ -305,29 +367,26 @@ class WhatIsCreatedUnderAllIsInPlayTests(TestCase):
         It is already in the library. Whether it is in play is a decision the
         user made, and rewriting its text is not a reason to take it back.
         """
-        proposals.auto_approve(self._p(
-            {"settings": [{"title": "已有设定", "content": "新"}]}), "all")
+        proposals.auto_approve(self._p(_edits(settings=[_setting(P + "已有设定", "新")])), "all")
         settings, _ = self._chosen()
         self.assertEqual(settings, set())
         self.assertEqual(Setting.objects.get(title="已有设定").content, "新")
 
     def test_what_was_already_chosen_stays_chosen(self):
         self.conv.selected_settings.add(self.old_setting)
-        proposals.auto_approve(self._p(
-            {"settings": [{"title": "新设定", "content": "x"}]}), "all")
+        proposals.auto_approve(self._p(_edits(settings=[_setting(P + "新设定", "x")])), "all")
         settings, _ = self._chosen()
         self.assertEqual(settings, {"已有设定", "新设定"})
 
     def test_edits_only_switches_on_the_costume_it_just_made(self):
         """It creates one kind of thing, and that kind is switched on too."""
-        proposals.auto_approve(self._p({"characters": [
-            {"name": "已有角色", "variants": [{"title": "新变体", "content": "x"}]}]}),
-            "edits")
+        proposals.auto_approve(self._p(_edits(characters=[
+            _character(P + "已有角色", variants=[_variant("新变体", "x")])])), "edits")
         _, variants = self._chosen()
         self.assertIn("新变体", variants)
 
     def test_edits_only_switches_nothing_on_when_it_refuses(self):
-        p = self._p({"settings": [{"title": "新设定", "content": "x"}]})
+        p = self._p(_edits(settings=[_setting(P + "新设定", "x")]))
         self.assertFalse(proposals.auto_approve(p, "edits"))
         self.assertEqual(self._chosen(), (set(), set()))
 
@@ -337,7 +396,7 @@ class WhatIsCreatedUnderAllIsInPlayTests(TestCase):
         separately, whether to use it. Switching it on for them would be this
         feature leaking into the path it is supposed to leave alone.
         """
-        p = self._p({"settings": [{"title": "新设定", "content": "x"}]})
+        p = self._p(_edits(settings=[_setting(P + "新设定", "x")]))
         proposals.resolve(p.id, approve=True)
         self.assertTrue(Setting.objects.filter(title="新设定").exists())
         self.assertEqual(self._chosen(), (set(), set()))
@@ -346,16 +405,31 @@ class WhatIsCreatedUnderAllIsInPlayTests(TestCase):
         """A character is in play through its costumes, so one written with
         none (a cat, a monster) is given the default costume rather than left
         on paper where no picture could be drawn from it."""
-        proposals.auto_approve(self._p({"characters": [
-            {"name": "只有名字的角色", "description": "x"}]}), "all")
+        proposals.auto_approve(self._p(_edits(characters=[_character(P + "只有名字的角色", "x")])), "all")
         self.assertEqual(self._chosen(), (set(), {ui_text.DEFAULT_VARIANT_TITLE}))
         self.assertTrue(Character.objects.filter(name="只有名字的角色").exists())
 
     def test_the_selection_is_this_conversations_alone(self):
         other = Conversation.objects.create(title="另一个", folder=self.folder)
-        proposals.auto_approve(self._p(
-            {"settings": [{"title": "新设定", "content": "x"}]}), "all")
+        proposals.auto_approve(self._p(_edits(settings=[_setting(P + "新设定", "x")])), "all")
         self.assertEqual(other.selected_settings.count(), 0)
+
+    def test_an_entry_the_conversation_already_has_is_promoted_in_place(self):
+        """The lead wrote it for this conversation and now proposes it for
+        the project: the same row moves up, keeping its id, its selection and
+        every picture that names it. Not a copy."""
+        own = Setting.objects.create(conversation=self.conv, title="雨夜", content="雨", positive=["rain"], origin_seq=3)
+        self.conv.selected_settings.add(own)
+        p = self._p(_edits(settings=[_setting(P + "雨夜", "新注释", positive="rain, night")]))
+        self.assertFalse(proposals.creates_an_entry(p), "it exists; it only changes layer")
+        self.assertTrue(proposals.auto_approve(p, "edits"))
+        self.assertEqual(Setting.objects.filter(title="雨夜").count(), 1)
+        moved = Setting.objects.get(id=own.id)
+        self.assertEqual((moved.folder_id, moved.conversation_id, moved.origin_seq), (self.folder.id, None, None))
+        self.assertEqual((moved.content, moved.positive), ("新注释", ["rain", "night"]))
+        self.assertIn("雨夜", self._chosen()[0])
+        p.refresh_from_db()
+        self.assertEqual(p.applied_summary, ui_text.PROPOSAL_UPDATED_SETTING.format(title="雨夜"))
 
 
 class TheTwoJudgementsMustAgreeTests(TestCase):
@@ -378,8 +452,7 @@ class TheTwoJudgementsMustAgreeTests(TestCase):
 
     def _p(self, payload):
         return LibraryProposal.objects.create(
-            conversation=self.conv, message=self.msg, folder=self.folder,
-            payload=_project(payload),
+            conversation=self.conv, message=self.msg, folder=self.folder, payload=payload,
         )
 
     def _entries(self):
@@ -391,17 +464,16 @@ class TheTwoJudgementsMustAgreeTests(TestCase):
                 CharacterVariant.objects.count())
 
     PAYLOADS = {
-        "一个新设定": {"settings": [{"title": "新", "content": "x"}]},
-        "一个新角色": {"characters": [{"name": "新人", "description": "x"}]},
-        "新角色带变体": {"characters": [{"name": "新人", "variants": [
-            {"title": "常服", "content": "x"}]}]},
-        "空标题的设定": {"settings": [{"title": "  ", "content": "x"}]},
-        "空名字的角色": {"characters": [{"name": "", "description": "x"}]},
-        "空变体标题": {"characters": [{"name": "新人2", "variants": [
-            {"title": "", "content": "x"}]}]},
+        "一个新设定": _edits(settings=[_setting(P + "新", "x")]),
+        "一个新角色": _edits(characters=[_character(P + "新人", "x")]),
+        "新角色带变体": _edits(characters=[_character(P + "新人", variants=[_variant("常服", "x")])]),
+        "空键的设定": _edits(settings=[_setting("  ", "x")]),
+        "只有前缀的设定": _edits(settings=[_setting(P, "x")]),
+        "空名字的角色": _edits(characters=[_character("", "x")]),
+        "空变体键": _edits(characters=[_character(P + "新人2", variants=[_variant("", "x")])]),
         "什么都没有": {},
-        "空列表": {"settings": [], "characters": []},
-        "变体没有 title 键": {"characters": [{"name": "新人3", "variants": [{}]}]},
+        "空列表": _edits(),
+        "变体没有 key 键": _edits(characters=[_character(P + "新人3", variants=[{}])]),
     }
 
     def _fresh(self):
@@ -422,15 +494,15 @@ class TheTwoJudgementsMustAgreeTests(TestCase):
     #: so the branch that decides whether a new costume counts was untested and
     #: the agreement it is supposed to guarantee was never actually checked.
     AGAINST_A_LIBRARY = {
-        "改一个已有设定": {"settings": [{"title": "已有设定", "content": "新"}]},
-        "改一个已有角色的描述": {"characters": [
-            {"name": "已有角色", "description": "新"}]},
-        "改已有角色的已有变体": {"characters": [
-            {"name": "已有角色", "variants": [{"title": "已有变体", "content": "新"}]}]},
-        "已有角色 + 新变体": {"characters": [
-            {"name": "已有角色", "variants": [{"title": "新变体", "content": "x"}]}]},
-        "已有设定 + 一个新设定": {"settings": [
-            {"title": "已有设定", "content": "新"}, {"title": "新设定", "content": "x"}]},
+        "改一个已有设定": _edits(settings=[_setting(P + "已有设定", "新")]),
+        "改一个已有角色的注释": _edits(characters=[_character(P + "已有角色", "新")]),
+        "改已有角色的已有变体": _edits(characters=[
+            _character(P + "已有角色", variants=[_variant("已有变体", "新")])]),
+        "已有角色 + 新变体": _edits(characters=[
+            _character(P + "已有角色", variants=[_variant("新变体", "x")])]),
+        "已有设定 + 一个新设定": _edits(settings=[
+            _setting(P + "已有设定", "新"), _setting(P + "新设定", "x")]),
+        "不带前缀的已有设定": _edits(settings=[_setting("已有设定", "新")]),
     }
 
     def test_saying_no_new_entry_means_no_new_entry(self):
@@ -473,8 +545,7 @@ class TheTwoJudgementsMustAgreeTests(TestCase):
         not something `creates_an_entry` speaks for.
         """
         self._seeded()
-        p = self._p({"characters": [
-            {"name": "已有角色", "variants": [{"title": "新变体", "content": "x"}]}]})
+        p = self._p(_edits(characters=[_character(P + "已有角色", variants=[_variant("新变体", "x")])]))
         self.assertFalse(proposals.creates_an_entry(p))
 
         before_entries, before_all = self._entries(), self._counts()
@@ -501,9 +572,8 @@ class TheTwoJudgementsMustAgreeTests(TestCase):
                     )
 
     def test_the_same_payload_twice_is_new_only_once(self):
-        payload = {"settings": [{"title": "两次", "content": "x"}],
-                   "characters": [{"name": "人", "variants": [
-                       {"title": "常服", "content": "x"}]}]}
+        payload = _edits(settings=[_setting(P + "两次", "x")],
+                         characters=[_character(P + "人", variants=[_variant("常服", "x")])])
         first = self._p(payload)
         self.assertTrue(proposals.creates_an_entry(first))
         proposals.apply(first)
@@ -530,7 +600,7 @@ class SettlingTwiceTests(TestCase):
                                           role="assistant", status="done", content="")
         self.p = LibraryProposal.objects.create(
             conversation=self.conv, message=self.msg, folder=self.folder,
-            payload=_project({"settings": [{"title": "设定", "content": "新"}]}),
+            payload=_edits(settings=[_setting(P + "设定", "新")]),
         )
 
     def test_approving_an_applied_one_writes_nothing_a_second_time(self):
@@ -585,16 +655,19 @@ class ATurnSurvivesThisGoingWrongTests(TestCase):
     def test_the_edit_survives_the_judgement_blowing_up(self):
         from unittest import mock
 
+        edit = _setting(P + "设定", "新")
         with mock.patch.object(
             proposals, "auto_approve", side_effect=RuntimeError("boom")
         ):
-            pipeline._record_proposal(
-                self.conv, self.msg,
-                _project({"settings": [{"title": "设定", "content": "新"}]}),
-            )
+            overlay = pipeline._write_library(self.conv, self.msg, _lead(_edits(settings=[edit])))
         p = LibraryProposal.objects.filter(conversation=self.conv).first()
         assert p is not None, "the edit must not be lost along with the judgement"
         self.assertEqual(p.status, "pending")
+        # and this turn still draws from the edit: the exposure does not wait on the judgement
+        self.assertEqual(overlay, {"设定": edit})
+        self.msg.refresh_from_db()
+        notes = (self.msg.model_raw or {}).get("edit_notes") or []
+        self.assertTrue(any(n.startswith(ui_text.PROPOSAL_NOT_RECORDED.format(error="")) for n in notes), notes)
 
 
 @override_settings(**TEST_CREDS)
@@ -611,8 +684,6 @@ class TheSettingTravelsOverHttpTests(TestCase):
         self.conv = Conversation.objects.create(title="c")
 
     def _patch(self, value):
-        import json
-
         # the same request the right rail makes — see store/settings.ts
         return self.c.patch(
             f"/api/conversations/{self.conv.id}",
@@ -646,7 +717,7 @@ class TheSettingTravelsOverHttpTests(TestCase):
         self.conv.save(update_fields=["folder"])
         msg = Message.objects.create(conversation=self.conv, seq=1, role="assistant",
                                      status="done", content="")
-        payload = _project({"settings": [{"title": "设定", "content": "新"}]})
+        payload = _edits(settings=[_setting(P + "设定", "新")])
 
         by_hand = LibraryProposal.objects.create(
             conversation=self.conv, message=msg, folder=folder, payload=payload)
@@ -684,44 +755,30 @@ class ApprovingByHandStillGoesThroughOnePlaceTests(TestCase):
             self.assertNotIn(forbidden, src)
 
 
-class TheCardSaysWhichLayerAnEntryWasMadeInTests(TestCase):
-    """
-    「新建设定「黄昏」」 read the same whether the entry went into the project
-    or into this conversation alone. The two are not the same thing -- one
-    every conversation of the project can use, the other this one only -- so
-    the card says （对话级） for the conversation's own layer.
-    """
+class TheCardSaysWhatWasWrittenTests(TestCase):
+    """The card under the turn prints what applying the proposal did, one
+    phrase per entry, in the words the UI table gives it."""
 
     def setUp(self):
         self.folder = Folder.objects.create(name="项目")
         self.conv = Conversation.objects.create(title="t", folder=self.folder)
         self.msg = Message.objects.create(conversation=self.conv, seq=1, role="assistant", content="")
 
-    @staticmethod
-    def _payload(scope: str) -> dict:
-        return {
-            "settings": [{"title": "黄昏", "content": "落日", "scope": scope,
-                          "tags": [{"part": "天色", "tags": "sunset"}]}],
-            "characters": [{"name": "小满", "description": "黑发的女孩", "scope": scope,
-                            "tags": [{"part": "身份", "tags": "1girl, black hair"}],
-                            "variants": [{"title": "校服", "content": "水手服",
-                                          "tags": [{"part": "衣服", "tags": "serafuku"}]}]}],
-        }
-
-    def test_an_entry_made_for_this_conversation_says_so(self):
-        p = proposals.record(self.conv, self.msg, self._payload("conversation"))
-        p.refresh_from_db()
-        self.assertEqual(p.status, "applied")
-        self.assertIn("新建设定（对话级）「黄昏」", p.applied_summary)
-        self.assertIn("新建角色（对话级）「小满」", p.applied_summary)
-        self.assertIn("新建造型（对话级）「小满·校服」", p.applied_summary)
-
-    def test_an_entry_made_for_the_project_does_not(self):
-        p = proposals.record(self.conv, self.msg, self._payload("project"))
+    def test_a_proposal_for_the_project_names_what_it_created(self):
+        p = proposals.record(self.conv, self.msg, _edits(
+            settings=[_setting(P + "黄昏", "落日", positive="sunset")],
+            characters=[_character(P + "小满", "黑发的女孩", positive="1girl, black hair",
+                                   variants=[_variant("校服", "水手服", positive="serafuku")])],
+        ))
+        self.assertEqual(p.status, "pending", "recorded, not written")
+        self.assertFalse(Setting.objects.filter(title="黄昏").exists())
         proposals.resolve(p.id, approve=True)
         p.refresh_from_db()
         self.assertEqual(p.status, "applied")
-        self.assertIn("新建设定「黄昏」", p.applied_summary)
-        self.assertIn("新建角色「小满」", p.applied_summary)
-        self.assertIn("新建造型「小满·校服」", p.applied_summary)
-        self.assertNotIn("对话级", p.applied_summary)
+        self.assertEqual(p.applied_summary, ui_text.PROPOSAL_SUMMARY_SEP.join([
+            ui_text.PROPOSAL_CREATED_SETTING.format(title="黄昏"),
+            ui_text.PROPOSAL_CREATED_CHARACTER.format(name="小满"),
+            ui_text.PROPOSAL_CREATED_VARIANT.format(name="小满", title="校服"),
+        ]))
+        self.assertEqual(Setting.objects.get(title="黄昏").positive, ["sunset"])
+        self.assertEqual(CharacterVariant.objects.get(title="校服").positive, ["serafuku"])

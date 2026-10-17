@@ -88,7 +88,8 @@ class Hooks:
     against counters.
     """
 
-    #: (brief) -> (nai_prompts, images) — one full redraw, prompts and paint
+    #: (verdict) -> (nai_prompts, images) — one full redraw from the lead's
+    #: reflection answer (its entries and its draw), prompts and paint
     redraw: Callable[[dict], tuple[dict, list]]
     #: raises if the user cancelled
     check_cancel: Callable[[], None]
@@ -113,6 +114,9 @@ class Hooks:
     #: class and only one of them is worth a retry budget. Answering yes ends
     #: the run here rather than after it has spent every round on the same wall.
     hopeless: Callable[[Exception], bool] = lambda exc: False
+    #: (answer) -> str — what does not hold together in a round's answer
+    #: (llm._ask's check); "" when it does. None checks nothing.
+    check_answer: Callable[[dict], str] | None = None
 
 
 @dataclass
@@ -161,19 +165,23 @@ def run(
     images: list,
     rounds: int,
     hooks: Hooks,
+    first_answer: dict | None = None,
 ) -> Outcome:
     """
     Run the reflection loop and return what the turn should keep.
 
     `base_history` is the same message array the ordinary lead call was given.
     The loop appends to a copy of it and throws the copy away at the end.
+    `first_answer` is the lead's whole answer for this turn (reply, the
+    entries it wrote, its project edits, its draw); without it only the
+    reply is shown back.
     """
     outcome = Outcome(brief=brief, nai_prompts=nai_prompts, images=images)
     if rounds <= 0 or not images:
         return outcome
 
     try:
-        _loop(outcome, base_history, first_reply, rounds, hooks)
+        _loop(outcome, base_history, first_answer or {"reply": first_reply}, rounds, hooks)
     except hooks.fatal:
         raise
     except Exception as exc:  # noqa: BLE001 — see the promise below
@@ -194,7 +202,7 @@ def run(
 def _loop(
     outcome: Outcome,
     base_history: list[dict],
-    first_reply: str,
+    first_answer: dict,
     rounds: int,
     hooks: Hooks,
 ) -> None:
@@ -207,7 +215,7 @@ def _loop(
     base = list(base_history)
     opening = [{
         "role": "assistant",
-        "content": _assistant_turn_text(first_reply, brief, nai_prompts),
+        "content": _assistant_turn_text(first_answer, brief),
     }]
     # one list per round, so the window below can be measured in rounds rather
     # than in messages — the rounds are what vary in length
@@ -258,9 +266,7 @@ def _loop(
             # see what it is judging a fix against
             group.append({
                 "role": "assistant",
-                "content": _assistant_turn_text(
-                    verdict.get("reply") or "", outcome.brief, outcome.nai_prompts
-                ),
+                "content": _assistant_turn_text(verdict, outcome.brief),
             })
 
 
@@ -282,6 +288,9 @@ def _finish_round(
     redraw_brief = verdict.get("draw")
     # redrew says a picture was redrawn -- true once one is, not when one was asked for
     entry = {"round": round_no, "reply": verdict.get("reply") or "", "redrew": False}
+    if verdict.get("checks"):
+        # what the app sent back about this round's answer before taking it
+        entry["checks"] = [c.get("note") or "" for c in verdict["checks"]]
     outcome.log.append(entry)
     outcome.rounds_run = round_no
 
@@ -290,7 +299,7 @@ def _finish_round(
         return "satisfied", budget
 
     new_prompts, new_images, budget = _redraw_with_retries(
-        redraw_brief, outcome, round_no, rounds, budget, hooks
+        verdict, outcome, round_no, rounds, budget, hooks
     )
     if not new_images:
         # nothing came back even after paying for retries; the previous round's
@@ -345,7 +354,8 @@ def _look_with_retries(
         try:
             hooks.set_phase("thinking")
             return llm.reflect_turn(
-                convo, on_retry=lambda _r: hooks.set_phase("retry:thinking")
+                convo, on_retry=lambda _r: hooks.set_phase("retry:thinking"),
+                check=hooks.check_answer,
             ), budget
         except hooks.fatal:
             raise
@@ -423,21 +433,34 @@ def _assemble(base: list[dict], opening: list[dict], groups: list[list[dict]]) -
     return base + opening + [m for g in shown for m in g]
 
 
-def _assistant_turn_text(reply: str, brief: dict, nai_prompts: dict) -> str:
+def _assistant_turn_text(answer: dict, brief: dict) -> str:
     """
-    One round of the model's own output, in the shape it output it.
-
-    The same rule as the history around it, and for the same reason: a round is
-    another turn in the same conversation, and a model reads its own turns as
-    examples of how to answer. See pipeline.assistant_answer.
-
-    The tags are not part of what it answered — they are what the drawing model
-    made of that answer — so they are not written into its mouth here either.
-    The app says them in its own turn, beside the pictures they produced.
+    One round of the model's own output, in the shape it output it: the
+    lead's answer -- the reply, the entries it wrote, its project edits --
+    with the draw as the app settled it. The tags are not part of what it
+    answered: the app says them in its own turn.
     """
     return json.dumps(
-        {"reply": reply or "", "draw": brief or None, "edits": None},
+        {
+            "reply": answer.get("reply") or "",
+            "settings": [_as_said(e) for e in answer.get("settings") or []],
+            "characters": [_as_said(e) for e in answer.get("characters") or []],
+            "edits": ({k: [_as_said(e) for e in answer["edits"].get(k) or []] for k in ("settings", "characters")}
+                      if isinstance(answer.get("edits"), dict) else None),
+            "draw": brief or None,
+        },
         ensure_ascii=False,
     )
+
+
+def _as_said(entry: dict) -> dict:
+    """An entry the way the lead wrote it: the tag lists back as one string."""
+    out = dict(entry)
+    for k in ("positive", "negative"):
+        if isinstance(out.get(k), list):
+            out[k] = ", ".join(out[k])
+    if isinstance(out.get("variants"), list):
+        out["variants"] = [_as_said(v) for v in out["variants"]]
+    return out
 
 

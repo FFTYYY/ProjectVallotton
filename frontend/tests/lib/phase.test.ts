@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Message } from "../../src/api/types";
 
-import { phaseLabel } from "../../src/lib/phase";
+import { phaseLabel, reflectStage } from "../../src/lib/phase";
 
 const at = (phase: string) => phaseLabel({ phase } as Message);
 
@@ -15,9 +15,16 @@ describe("phaseLabel", () => {
     expect(at("cancelling")).toContain("停止");
   });
 
+  it("says the prompt is being compressed, which only happens over the limit", () => {
+    expect(at("compressing")).toContain("压缩");
+    expect(at("compressing")).not.toContain("检查");
+  });
+
   it("says a retry is a retry rather than repeating the soothing line", () => {
     expect(at("retry:thinking")).toContain("重试");
     expect(at("retry:prompting")).toContain("重试");
+    expect(at("retry:compressing")).toContain("重试");
+    expect(at("retry:compressing")).toContain("压缩");
   });
 
   it("reads a reflection round as one thing with one number", () => {
@@ -26,6 +33,7 @@ describe("phaseLabel", () => {
     expect(at("reflecting:1/2")).toBe("瓦洛东小姐正在端详这张画1/2…");
     expect(at("reflecting:1/2:prompting")).toBe("瓦洛东小姐在斟酌怎么改1/2…");
     expect(at("reflecting:2/2:painting:0/1")).toBe("瓦洛东小姐正在重画2/2…");
+    expect(at("reflecting:1/3:compressing")).toBe("瓦洛东小姐在压缩提示词1/3…");
   });
 
   it("a redraw inside a round is not mistaken for an ordinary paint", () => {
@@ -38,10 +46,22 @@ describe("phaseLabel", () => {
 
   it("a retry inside a round still says which round", () => {
     expect(at("reflecting:3/4:retry:thinking")).toContain("3/4");
+    expect(at("reflecting:3/4:retry:compressing")).toContain("3/4");
   });
 
   it("falls back rather than showing a raw phase string", () => {
     expect(at("")).not.toContain(":");
     expect(at("something-new")).not.toContain("something-new");
+  });
+});
+
+describe("reflectStage", () => {
+  it("maps every inner phase of a round to her own words", () => {
+    expect(reflectStage("prompting")).toContain("斟酌");
+    expect(reflectStage("compressing")).toContain("压缩");
+    expect(reflectStage("lookup:2")).toContain("翻阅");
+    expect(reflectStage("retry:compressing")).toContain("走神");
+    expect(reflectStage("painting:0/1")).toContain("重画");
+    expect(reflectStage("")).toContain("端详");
   });
 });

@@ -1,39 +1,48 @@
 import { useState } from "react";
 
-import type { LibraryProposal, TagLine } from "../api/types";
+import type { LibraryProposal, ProposedEntry } from "../api/types";
+import { displayKey, joinTags, tagList, variantTitle } from "../lib/entries";
 import { useProjects } from "../store/projects";
 
 import { CharacterIcon, CheckIcon, SettingEntryIcon } from "./Icons";
 import { t } from "../uiText";
 
 /**
- * What the model wants written into the library, said in the conversation.
+ * What the model wants written into the project's library, said in the
+ * conversation.
  *
  * A proposal belongs to the turn that raised it — it knows its `message_id` —
  * so it is shown there, in the transcript, in sequence. It used to live in the
  * right rail, which is closed most of the time, so a proposal could be made
- * and never seen.
+ * and never seen. It is shown only once the turn is done: reflection may
+ * rewrite the entries each round, and a card for a draft would be answered
+ * before the lead had finished.
  *
  * Answering it does not remove it. An answer is part of what happened in this
  * conversation, so the turn stays and says what was decided, the way the rest
  * of the transcript does.
  */
+
 /**
- * An entry's tag lines, as the model proposed them: one line per thing, the
- * words the app will splice into prompts byte for byte. Shown so what is
- * being approved is what will actually be drawn from.
+ * An entry as the lead proposed it: the note, then the tags and prose the
+ * drawing model will read. Shown so what is being approved is what will
+ * actually be drawn from.
  */
-function TagLinesNote({ lines }: { lines?: TagLine[] }) {
-  if (!lines?.length) return null;
+function EntryNote({ entry }: { entry: ProposedEntry }) {
+  const positive = tagList(entry.positive);
+  const negative = tagList(entry.negative);
+  const prose = entry.prose?.trim();
   return (
-    <div className="proposal-lines">
-      {lines.map((ln, i) => (
-        <div key={i}>
-          <span className="proposal-line-part">{ln.part}</span>
-          <code>{ln.tags}</code>
+    <>
+      {entry.note && <div className="proposal-entry-body">{entry.note}</div>}
+      {(positive.length > 0 || negative.length > 0 || prose) && (
+        <div className="proposal-fields">
+          {positive.length > 0 && <code>+ {joinTags(positive)}</code>}
+          {negative.length > 0 && <code>− {joinTags(negative)}</code>}
+          {prose && <span>{prose}</span>}
         </div>
-      ))}
-    </div>
+      )}
+    </>
   );
 }
 
@@ -77,27 +86,23 @@ export function ProposalTurn({
         <div className="proposal-entry" key={`s${i}`}>
           <div className="proposal-entry-head">
             <SettingEntryIcon size={13} />
-            {t.settingEntry(s.title)}
-            {s.scope === "conversation" && <span className="sel-layer">{t.thisConversation}</span>}
+            {t.settingEntry(displayKey(s.key))}
+            {s.category && <span className="proposal-category">{s.category}</span>}
           </div>
-          <div className="proposal-entry-body">{s.content}</div>
-          <TagLinesNote lines={s.tags} />
+          <EntryNote entry={s} />
         </div>
       ))}
       {(p.characters ?? []).map((c, i) => (
         <div className="proposal-entry" key={`c${i}`}>
           <div className="proposal-entry-head">
             <CharacterIcon size={13} />
-            {t.characterEntry(c.name)}
-            {c.scope === "conversation" && <span className="sel-layer">{t.thisConversation}</span>}
+            {t.characterEntry(displayKey(c.key))}
           </div>
-          {c.description && <div className="proposal-entry-body">{c.description}</div>}
-          <TagLinesNote lines={c.tags} />
+          <EntryNote entry={c} />
           {(c.variants ?? []).map((v, j) => (
             <div className="proposal-variant" key={j}>
-              <b>{v.title}</b>
-              {v.content}
-              <TagLinesNote lines={v.tags} />
+              <b>{variantTitle(v.key)}</b>
+              <EntryNote entry={v} />
             </div>
           ))}
         </div>

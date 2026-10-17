@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import type { Attachment, Message, NaiPrompts, ReflectionRound } from "../api/types";
+import type { Attachment, Message, NaiPrompts, ReflectionRound, SnapshotEntry, UsedEntry } from "../api/types";
 import { isLook } from "../api/types";
-import { describeCharacter, ownLayer } from "../lib/library";
+import { displayKey, isEdit, joinTags, originOf } from "../lib/entries";
+import { describeEntry, ownLayer } from "../lib/library";
 import { dragPicture } from "../lib/dragPicture";
 import { firstLine } from "../lib/firstLine";
 import { mainFirst, mainPosition } from "../lib/mainPicture";
@@ -76,6 +77,7 @@ function PromptsBox({ prompts, seeds }: { prompts: NaiPrompts; seeds: (number | 
       const pos =
         c.center_x !== null && c.center_y !== null ? ` @(${c.center_x}, ${c.center_y})` : "";
       lines.push(t.promptCharacter(i + 1, pos, c.prompt));
+      if (c.negative) lines.push(t.promptNegative(c.negative));
     });
     if (prompts.negative_prompt) lines.push(t.promptNegative(prompts.negative_prompt));
     return lines.join("\n");
@@ -112,12 +114,14 @@ function PromptsBox({ prompts, seeds }: { prompts: NaiPrompts; seeds: (number | 
         {(prompts.character_prompts ?? []).map((c, i) => (
           <div key={i}>
             <div className="p-label">
-              {t.characterN(i + 1)}
+              {c.key || t.characterN(i + 1)}
               {c.center_x !== null && c.center_y !== null
                 ? t.position(c.center_x, c.center_y)
                 : ""}
             </div>
             <div className="p-value">{c.prompt}</div>
+            {/* this character's own negative, kept apart from the picture's */}
+            {c.negative && <div className="p-value p-negative">{c.negative}</div>}
           </div>
         ))}
         {prompts.negative_prompt && (
@@ -231,18 +235,52 @@ function ReflectionNote({ rounds }: { rounds: ReflectionRound[] }) {
   );
 }
 
+/**
+ * One exposed entry as this picture had it: the snapshot says what it read
+ * as and where it came from, the assembly record says whether the drawing
+ * model used it and what it came to after that model's own changes.
+ */
+interface ExposedEntry {
+  key: string;
+  kind: UsedEntry["kind"];
+  used: boolean;
+  snapshot?: SnapshotEntry;
+  /** the tags and prose that went into the prompt */
+  final: { positive: string[]; negative: string[]; prose: string };
+}
+
+function exposedEntries(message: Message): ExposedEntry[] {
+  const snapshot = message.selection_snapshot?.entries ?? [];
+  const used = message.used_entries ?? [];
+  if (used.length) {
+    return used.map((u) => ({
+      key: u.key,
+      kind: u.kind,
+      used: u.used,
+      snapshot: snapshot.find((e) => e.key === u.key),
+      final: { positive: u.positive, negative: u.negative, prose: u.prose },
+    }));
+  }
+  // a turn that stopped before the prompt was assembled still exposed them
+  return snapshot.map((e) => ({
+    key: e.key,
+    kind: e.kind,
+    used: true,
+    snapshot: e,
+    final: { positive: e.positive, negative: e.negative, prose: e.prose },
+  }));
+}
+
+function EntryIcon({ kind, size }: { kind: UsedEntry["kind"]; size: number }) {
+  return kind === "setting" ? <SettingEntryIcon size={size} /> : <CharacterIcon size={size} />;
+}
+
 function UsedLibrary({ message }: { message: Message }) {
   const [open, setOpen] = useState(false);
-  const snap = message.selection_snapshot;
-  if (!snap) return null;
-  // the picture's own account of what it took, when the row has one; the
-  // switched-on selection is the fallback for rows from before it was kept
-  const used = message.used_entries ?? [];
-  const usedNames = new Set(used.map((u) => u.name));
-  const characters = (snap.characters ?? []).filter((c) => !used.length || usedNames.has(c.name));
-  const settings = (snap.settings ?? []).filter((s) => !used.length || usedNames.has(s.title));
-  const linesOf = (name: string) => used.find((u) => u.name === name)?.lines ?? [];
-  if (!characters.length && !settings.length) return null;
+  const entries = exposedEntries(message);
+  if (!entries.length) return null;
+  const own = (e: ExposedEntry) => !!e.snapshot && ownLayer(e.snapshot);
+  const name = (e: ExposedEntry) => displayKey(e.snapshot?.shown_key ?? e.key);
 
   return (
     <div className="used-library">
@@ -255,57 +293,38 @@ function UsedLibrary({ message }: { message: Message }) {
         {t.materialsUsed}
       </button>
       {!open &&
-        characters.map((c) => (
-          <Tooltip key={c.id} content={linesOf(c.name).length ? linesOf(c.name).join(t.listSep) : describeCharacter(c)}>
-            <span className={`used-chip${ownLayer(c) ? " own" : ""}`}>
-              <CharacterIcon size={11} />
-              {c.name}
-              {linesOf(c.name).length > 0 ? (
-                <span className="chip-variant">{t.linesUsed(linesOf(c.name).length)}</span>
-              ) : c.variants.length > 0 && (
-                <span className="chip-variant">
-                  {c.variants.map((v) => v.title).join(t.listSep)}
-                </span>
-              )}
-            </span>
-          </Tooltip>
-        ))}
-      {!open &&
-        settings.map((s) => (
-          <Tooltip key={s.id} content={linesOf(s.title).length ? linesOf(s.title).join(t.listSep) : (s.content ?? "")}>
-            <span className={`used-chip setting${ownLayer(s) ? " own" : ""}`}>
-              <SettingEntryIcon size={11} />
-              {s.title}
-              {linesOf(s.title).length > 0 && (
-                <span className="chip-variant">{t.linesUsed(linesOf(s.title).length)}</span>
-              )}
+        entries.map((e) => (
+          <Tooltip key={e.key} content={describeEntry(e.snapshot?.note, e.final) || t.empty}>
+            <span
+              className={`used-chip${e.kind === "setting" ? " setting" : ""}${own(e) ? " own" : ""}${e.used ? "" : " unused"}`}
+            >
+              <EntryIcon kind={e.kind} size={11} />
+              {name(e)}
+              {!e.used && <span className="chip-variant">{t.unused}</span>}
             </span>
           </Tooltip>
         ))}
       <Collapse open={open} className="used-collapse">
         <div className="used-detail">
-          {characters.map((c) => (
-            <div className="used-entry" key={c.id}>
+          {entries.map((e) => (
+            <div className={`used-entry${e.used ? "" : " unused"}`} key={e.key}>
               <div className="used-entry-head">
-                <CharacterIcon size={12} />
-                {c.name}
+                <EntryIcon kind={e.kind} size={12} />
+                {name(e)}
+                {/* a project entry's `@` already says where it is from */}
+                {e.snapshot && originOf(e.snapshot) === "user" && (
+                  <span className="used-entry-origin">{t.fromUser}</span>
+                )}
+                {!e.used && <span className="used-entry-origin">{t.unused}</span>}
               </div>
-              {c.description && <div className="used-entry-body">{c.description}</div>}
-              {c.variants.map((v) => (
-                <div className="used-entry-variant" key={v.id}>
-                  <b>{v.title}</b>
-                  {v.content}
-                </div>
-              ))}
-            </div>
-          ))}
-          {settings.map((s) => (
-            <div className="used-entry" key={s.id}>
-              <div className="used-entry-head">
-                <SettingEntryIcon size={12} />
-                {s.title}
-              </div>
-              {s.content && <div className="used-entry-body">{s.content}</div>}
+              {e.snapshot?.note && <div className="used-entry-body">{e.snapshot.note}</div>}
+              {e.final.positive.length > 0 && (
+                <code className="used-entry-tags">+ {joinTags(e.final.positive)}</code>
+              )}
+              {e.final.negative.length > 0 && (
+                <code className="used-entry-tags">− {joinTags(e.final.negative)}</code>
+              )}
+              {e.final.prose && <div className="used-entry-body">{e.final.prose}</div>}
             </div>
           ))}
         </div>
@@ -538,8 +557,8 @@ export function MessageBubble({ message: m, isLastAssistant, onOpenImage }: Bubb
           <div className="draw-id" title={t.drawId}>
             #{m.nai_prompts.draw_id}
             {/* said out loud, so a misjudged "edit" is visible rather than silent */}
-            {m.draw_brief?.continues && (
-              <span className="draw-continues">{t.continues(m.draw_brief.continues)}</span>
+            {isEdit(m) && (
+              <span className="draw-edit">{t.editOf(m.draw_brief!.inherits)}</span>
             )}
           </div>
         )}

@@ -1,20 +1,27 @@
 import { t } from "../uiText";
 
+import { joinTags } from "./entries";
+
 /**
  * What a library entry contributes, as one block of text.
  *
- * The rail, the chips above the composer and the record under a picture all
- * want to say the same thing on hover, so they say it from here rather than
- * each keeping their own copy — which is how they drifted apart in the first
- * place.
+ * The rail and the record under a picture want to say the same thing on
+ * hover, so they say it from here rather than each keeping their own copy —
+ * which is how they drifted apart in the first place.
  */
 
-interface VariantLike {
+interface EntryLike {
+  positive?: readonly string[];
+  negative?: readonly string[];
+  prose?: string;
+}
+
+interface VariantLike extends EntryLike {
   title: string;
   content?: string;
 }
 
-interface CharacterLike {
+interface CharacterLike extends EntryLike {
   description?: string;
   variants: VariantLike[];
 }
@@ -29,10 +36,20 @@ export function ownLayer(e: { conversation_id?: string | null; layer?: string })
   return !!e.conversation_id || e.layer === "conversation";
 }
 
+/** an entry's note, tags and prose, one line each; "" when it has none */
+export function describeEntry(note: string | undefined, e: EntryLike): string {
+  const lines = [note?.trim()];
+  if (e.positive?.length) lines.push(`+ ${joinTags(e.positive)}`);
+  if (e.negative?.length) lines.push(`− ${joinTags(e.negative)}`);
+  if (e.prose?.trim()) lines.push(e.prose.trim());
+  return lines.filter(Boolean).join("\n");
+}
+
 export function describeCharacter(c: CharacterLike): string {
-  const parts = [c.description?.trim()].filter(Boolean) as string[];
+  const parts = [describeEntry(c.description, c)];
   for (const v of c.variants) {
-    if (v.content?.trim()) parts.push(t.variantBlock(v.title, v.content.trim()));
+    const said = describeEntry(v.content, v);
+    if (said) parts.push(t.variantBlock(v.title, said));
   }
-  return parts.join("\n\n");
+  return parts.filter(Boolean).join("\n\n");
 }

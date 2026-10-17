@@ -41,7 +41,7 @@
     <a class="l2" href="#references">The composer and reference pictures</a>
     <a class="l2" href="#rightbar">The right bar</a>
     <a href="#library">The library</a>
-    <a class="l2" href="#entries">Entries and tag lines</a>
+    <a class="l2" href="#entries">Entries</a>
     <a class="l2" href="#selection">Attaching and detaching</a>
     <a href="#projects">Projects</a>
     <a class="l2" href="#layers">This conversation and the project</a>
@@ -72,13 +72,13 @@
 </table></div>
 
 <h3 id="pictures">Finished pictures</h3>
-<p>A finished picture appears inside Vallotton's reply. Above it is a line starting with #: the picture's id. Use it to point at a particular picture, for example “make the umbrella in #v898fc red”.</p>
+<p>A finished picture appears inside Vallotton's reply. Above it is a line starting with #: the picture's id. Use it to point at a particular picture, for example “make the umbrella in #76g4zz red”.</p>
 <p>A message can ask for a new picture or for a change to one already painted; Vallotton works out which from what you say. If you give no id, the change goes to the most recent picture. A changed picture shows “Edited from” and the original's id after its own.</p>
 <figure><img class="shot" src="../assets/shots/en/edit.jpg" alt="One edit: a red umbrella, the figure closer to the camera, the background unchanged" loading="lazy"><figcaption>One edit: “make the umbrella red, and bring her a little closer to the camera”. Only the umbrella and the distance changed; after the id it says “Edited from” and the original's id.</figcaption></figure>
 <p>Under each picture, in order:</p>
 <ul>
   <li><b>The reflection result</b>: only there when reflection is on; it says how many rounds were reflected on and how many times the picture was redrawn, see <a href="#reflection">reflection</a>.</li>
-  <li><b>Materials used</b>: which library entries went into this picture; open it to see exactly which lines, see <a href="#library">the library</a>.</li>
+  <li><b>Materials used</b>: which library entries went into this picture; open it to see which of each entry's tags this picture actually used, see <a href="#library">the library</a>.</li>
   <li><b>NovelAI prompts</b>: the prompts sent to NovelAI. Folded by default; open it to read them, and the button beside it copies them.</li>
   <li><b>The time it took, and a few buttons</b>. What the buttons do is in the table below.</li>
 </ul>
@@ -111,42 +111,46 @@
   <li><b>Generation settings</b>: the settings this conversation paints with, see <a href="#gen-settings">generation settings</a>.</li>
   <li><b>Quick phrases</b>: ready-made lines you use often, see <a href="#continuous">continuous generation and quick phrases</a>.</li>
 </ul>
-<figure><img class="shot narrow" src="../assets/shots/en/rightbar.png" alt="The right bar: current conversation, library (two entries under “This conversation”, with edit and delete buttons on the right), generation settings, quick phrases" loading="lazy"><figcaption>The right bar. Under “This conversation” are the entries that belong to this conversation alone, with edit and delete buttons on the right; once the conversation is in a project there is also a “Save to project” button, see <a href="#layers">this conversation and the project</a>.</figcaption></figure>
+<figure><img class="shot narrow" src="../assets/shots/en/rightbar.png" alt="The right bar: current conversation, library (under “This conversation”, the entries that belong to this conversation alone, with edit, save-to-project and delete buttons; under “Characters” and “Lore”, the project's entries), generation settings, quick phrases" loading="lazy"><figcaption>The right bar. Under “This conversation” are the entries that belong to this conversation alone, with buttons on the right to edit them, save them to the project and delete them. Under “Characters” and “Lore” are the project's entries, see <a href="#layers">this conversation and the project</a>.</figcaption></figure>
 
 <h2 id="library">The library</h2>
 <p>The library is where Vallotton keeps what it knows about characters, clothes, styles and the like. Left to the model's own memory, the same character easily ends up looking different from one picture to the next, and the details of her clothes come and go. With the library, Vallotton paints the character from what is written down every time, so characters and style stay the same across many pictures, and you do not have to describe everything again each time.</p>
 <p>Most of the time you need not look after the library yourself: a new character, a style you have settled on, Vallotton writes them down on its own, and if you say “give her a red sweater instead”, it updates the notes as it goes. You can of course edit the library yourself whenever you like.</p>
 
-<h3 id="entries">Entries and tag lines</h3>
+<h3 id="entries">Entries</h3>
 <p>Each item in the library is an entry. There are three kinds:</p>
 <dl class="terms">
-  <dt>Lore entry</dt><dd>A style, a scene that recurs, a rule that holds throughout the story (“it is always raining”), and so on.</dd>
+  <dt>Lore entry</dt><dd>A style, the characters' proportions, a scene that recurs, a rule that holds throughout the story (“it is always raining”), and so on. Every lore entry has a category.</dd>
   <dt>Character</dt><dd>The parts of a character that do not change with her clothes: sex, hair, eyes, skin, whether she has a mole or a scar.</dd>
-  <dt>Variant</dt><dd>One of a character's outfits, with its accessories, pose and so on. A character can have several variants, and changing clothes does not change her face.</dd>
+  <dt>Variant</dt><dd>One of a character's outfits, with its accessories, pose, expression and so on. A character can have several variants, and changing clothes does not change her face.</dd>
 </dl>
-<p>Every entry has two parts: a passage of notes and a number of tag lines. The notes are plain description and can hold things that cannot be painted, like personality or background. What actually decides how the picture turns out are the tag lines: each line describes one thing, say the hair, the eyes, the top, the shoes, in the English keywords NovelAI knows. For example:</p>
+<p>Every entry has four parts:</p>
+<ul>
+  <li><b>Note</b>: a plain-language description for you and Vallotton. It is never sent to NovelAI, so things that cannot be painted, like personality or background, go here.</li>
+  <li><b>Positive tags</b>: what the thing looks like, in the English keywords NovelAI knows, such as <code>black hair, short hair, green eyes</code>. This is what gets sent when painting.</li>
+  <li><b>Negative tags</b>: what this entry must not come out as; an adult character's negative tags can say <code>child</code>, for instance.</li>
+  <li><b>Prose</b>: a sentence or two of English for what tags cannot say, such as whether the bun sits at the back of the head or on top, or which ear the earring is in.</li>
+</ul>
 <pre><code>Character “Ellie”
-  identity  1girl, black hair, short hair
-  eyes      green eyes
-  mole      mole under left eye
+  note      a woman in her early twenties, short black hair, green eyes, a mole under her left eye
+  positive  1girl, young adult, black hair, short hair, green eyes, mole under eye
+  prose     The mole sits just under her left eye.
 
 Variant “School uniform”
-  top       white sailor shirt, navy sailor collar
-  bottom    navy pleated skirt
-  shoes     brown loafers
-  socks     black knee socks</code></pre>
-<p>When painting, Vallotton uses these tag lines whole and never rewrites them, so a character on record does not drift from picture to picture. The other way round, anything that is not written on some line may come out differently in every picture.</p>
-<p>An entry can be changed at any time. Click the edit button beside it in the right bar to change its name and notes; if you change only the notes, Vallotton rewrites the tag lines from the new notes within a minute or two. Entries in a project can also have their tag lines edited directly on <a href="#project-page">the project page</a>. If you write tag lines yourself, a few suggestions:</p>
+  positive  white sailor shirt, navy sailor collar, navy pleated skirt, brown loafers, black knee socks</code></pre>
+<p>When painting, Vallotton hands the drawing model the whole of every character, variant and lore entry this picture needs. The drawing model writes the prompt from the entries' tags, so a character on record does not drift from picture to picture; it also trims to this picture's framing, leaving the shoes out of a close-up of the face, and adds this picture's pose and expression. Anything the entry does not say may come out differently in every picture.</p>
+<p>An entry can be changed at any time. Click the edit button beside it in the right bar to change its name, note, positive tags, negative tags and prose. If you change only the note, Vallotton rewrites the tags and prose from the new note within a minute or two, keeping the tags you wrote yourself that the note did not touch. If you write tags yourself, a few suggestions:</p>
 <ul>
-  <li>One thing per line: a line for the hair, one for the eyes, one for the top, one for the shoes.</li>
   <li>Spell out whatever affects the picture: colour, material, length, position. A mole should say whether it is under the left eye or the right.</li>
   <li>In a variant, write down every piece of clothing from head to toe, even if this picture only goes down to the knees. Anything left out may come out differently in every picture.</li>
+  <li>Use the spelling NovelAI knows, <code>short hair</code> rather than <code>hair is short</code>. When unsure, ask Vallotton; it looks tags up.</li>
 </ul>
-<figure><img class="shot" src="../assets/shots/en/library.png" alt="The character “White-haired girl” opened on the project page: notes, tag lines, and one variant" loading="lazy"><figcaption>A character, opened. Under the notes are the tag lines; the variant sits inside the character and has tag lines of its own.</figcaption></figure>
+<figure><img class="shot" src="../assets/shots/en/library.png" alt="The character “Shuang” opened on the project page: the note, the tags and one variant" loading="lazy"><figcaption>A character, opened. Under the note are the positive tags, negative tags and prose; the variant sits inside the character and has tags of its own.</figcaption></figure>
 
 <h3 id="selection">Attaching and detaching entries</h3>
-<p>A library entry has to be attached to the message before it is used in the pictures that follow. In the library in the right bar, click a lore entry to attach it to the current message or detach it; for a character, open it first and click one of its variants, which attaches that character in that variant (wearing that outfit, say). Attached entries show as chips above the composer.</p>
-<figure><img class="shot" src="../assets/shots/en/chips-hover.png" alt="Three chips above the composer, with the mouse resting on “White-haired girl”; the bubble shows her description and the “Beige trench coat” outfit" loading="lazy"><figcaption>The chips above the composer are the entries attached right now. Rest the mouse on a chip (tap it on a phone) to see what it holds.</figcaption></figure>
+<p>A library entry has to be attached to the conversation before Vallotton can see it and use it when painting. In the library in the right bar, click a lore entry to attach or detach it; for a character, open it first and click one of its variants, which attaches that character in that variant (wearing that outfit, say). Attached entries show as chips above the composer.</p>
+<p>Entries Vallotton writes down in this conversation are attached as they are written. An entry that is not attached is invisible to Vallotton and is not used: to use one of the project's entries in this conversation, attach it yourself. If an entry is of no use in this conversation, detach it.</p>
+<figure><img class="shot" src="../assets/shots/en/chips-hover.png" alt="The chips above the composer, with the mouse resting on “Shuang”; the bubble shows what is written down about her and her “school uniform” variant" loading="lazy"><figcaption>The chips above the composer are the entries attached right now. Rest the mouse on a chip (tap it on a phone) to see what it holds.</figcaption></figure>
 
 <h2 id="projects">Projects</h2>
 <p>Once you have many conversations, projects keep them sorted. A project is like a folder: it holds conversations, and it can hold sub-projects.</p>
@@ -155,11 +159,11 @@ Variant “School uniform”
 <h3 id="layers">The two layers of the library</h3>
 <p>So the library really has two layers: one belongs to the current conversation alone and is labelled “This conversation” on screen; the other belongs to the project, and every conversation in the project can use it.</p>
 <ul>
-  <li>What Vallotton writes down in a conversation goes into the “This conversation” layer by default. In the row of chips above the composer, this conversation's entries are teal chips and the project's entries are dark grey chips.</li>
+  <li>What Vallotton writes down in a conversation goes into the “This conversation” layer by default. In the row of chips above the composer, this conversation's entries are teal chips and the project's entries are dark grey chips. In the right bar, this conversation's entries are listed under “This conversation”, and the ones you made yourself have a pencil beside them.</li>
   <li>If you want the other conversations in the project to use an entry too, click the “Save to project” button beside it in the right bar, or just tell Vallotton to “save it to the project”. The conversation has to be in a project before Vallotton can edit the project's library.</li>
-  <li>When Vallotton wants to write into the project layer, it asks first: a card appears in the conversation asking you to confirm. Only after you click “Write to the library” is anything written to the project library. If you would rather not confirm every time, change “Auto library” in the generation settings.</li>
+  <li>When Vallotton wants to write into the project layer, it asks first. When the round is over, a card appears in the conversation listing every entry it wants to write: the note, the positive tags (+), the negative tags (−) and the prose. Only after you click “Write to the library” is anything written to the project library. If you would rather not confirm every time, change “Auto library” in the generation settings.</li>
 </ul>
-<figure><img class="shot narrow" src="../assets/shots/en/proposal.png" alt="The card that appears when Vallotton wants to write a lore entry into the project library, with the buttons “Write to the library” and “Not now” underneath" loading="lazy"><figcaption>The card that appears when Vallotton wants to write something into the project library.</figcaption></figure>
+<figure><img class="shot medium" src="../assets/shots/en/proposal.png" alt="The card that appears when Vallotton wants to write entries into the project library: two lore entries and a character with a variant, with the buttons “Write to the library” and “Not now” underneath" loading="lazy"><figcaption>The card that appears when Vallotton wants to write something into the project library.</figcaption></figure>
 
 <p>Projects are layered too: a conversation in a project inherits the library entries of all its ancestor projects. When the library is searched, the entries nearest the current conversation win. That is, this conversation's own entries come first; if the entry is not in this conversation, the parent project's library is searched, and only if it is not there either are the ancestor projects' libraries searched.</p>
 
@@ -184,6 +188,7 @@ Variant “School uniform”
 <h2 id="reflection">Reflection</h2>
 <p>With reflection on, after each picture is painted Vallotton looks it over itself and checks it against what you asked for: glasses that were asked for and not painted, a person missing, the perspective wrong, that sort of thing. If it finds something, it makes the change and paints again, until it is satisfied or the reflection rounds run out.</p>
 <p>Reflection is on as soon as “Reflection rounds” in the generation settings in the right bar is 1 or more. While it works, the conversation shows the progress: “is studying this picture”, “is painting it again”. The repainted picture replaces the earlier one. If you stop generation during a repaint, the picture from before the repaint is the result.</p>
+<p>While reflecting, Vallotton may also correct an entry in the library, a tag that turned out to be wrong, say. Every change a round makes to the library is written only when reflection is over; if you stop generation during a repaint, that repaint's changes to the library are not kept either.</p>
 
 <h2 id="phrases">Quick phrases</h2>
 <p>Quick phrases are ready-made lines you use often, such as a line that fixes the style: “paint this in the style of Japanese digital illustration”. You can create and edit quick phrases in the right bar or on the settings page. Click a quick phrase in the right bar and it is put into the composer for you.</p>
@@ -201,7 +206,7 @@ Variant “School uniform”
 <h2 id="inspect">The inspector</h2>
 <p>If you want to know how Vallotton worked inside during a given round, click the “Inspect” button under the message to open the inspector. It shows the complete internal record of that message.</p>
 <p>There is a lot in it, and most of the time you will not need it. When what came out is not what you said, open it and see where the understanding went astray.</p>
-<figure><img class="shot" src="../assets/shots/en/inspector.png" alt="The inspector: Vallotton's reply at the top, under it the picture description it worked out" loading="lazy"><figcaption>The inspector. At the top is Vallotton's reply, then the picture description it worked out; scrolling down there are the prompts, the reflection record and more.</figcaption></figure>
+<figure><img class="shot" src="../assets/shots/en/inspector.png" alt="The inspector: Vallotton's reply at the top, under it the brief it wrote and the entries this picture uses" loading="lazy"><figcaption>The inspector. At the top is Vallotton's reply, then the brief it wrote and the entries this picture uses; scrolling down there are the entries it wrote down, the entries the drawing model got, the prompts, the reflection record and more.</figcaption></figure>
 
 <h2 id="settings-page">The settings page</h2>
 <p>Click “Settings” at the top of the left bar to open the settings page. Its first row switches the language and the theme; below that you set the defaults for the generation settings, manage the quick phrases and check the state of things in the background.</p>

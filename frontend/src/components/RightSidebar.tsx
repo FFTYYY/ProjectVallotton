@@ -3,9 +3,11 @@ import { useNavigate } from "react-router-dom";
 
 import type {
   Conversation,
+  EntryPatch,
   SelectionPayload,
 } from "../api/types";
-import { describeCharacter } from "../lib/library";
+import { joinTags, originOf, sameTags, splitTags } from "../lib/entries";
+import { describeCharacter, describeEntry } from "../lib/library";
 import { STALE_POLL_MS, anyStale, staleHint } from "../lib/linesStale";
 import { Collapse } from "./Collapse";
 import { GenerationControls } from "./GenerationControls";
@@ -142,6 +144,20 @@ function ConvSection({ conv }: { conv: Conversation }) {
 
 /* ---------------------------------------------------------------- library selection */
 
+/**
+ * Beside an entry's name, only one mark: a pencil on what the person made
+ * themselves. Which layer an entry is in, the groups already say; who among
+ * the models wrote it, and when, is not the person's concern.
+ */
+function OriginMark({ entry }: { entry: Parameters<typeof originOf>[0] }) {
+  if (originOf(entry) !== "user") return null;
+  return (
+    <span className="sel-origin" title={t.fromUser}>
+      <EditIcon size={10} />
+    </span>
+  );
+}
+
 function CharacterRow({
   convId,
   character,
@@ -165,6 +181,7 @@ function CharacterRow({
         <button className="sel-row" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
           <CharacterIcon size={13} />
           <span className="sel-name">{character.name}</span>
+          <OriginMark entry={character} />
           {(character.lines_stale || character.variants.some((v) => v.lines_stale)) && (
             <span className="sel-stale" role="img" aria-label={staleHint()} title={staleHint()}><SyncIcon size={12} /></span>
           )}
@@ -181,7 +198,7 @@ function CharacterRow({
       <Collapse open={open}>
         <div className="sel-variants">
           {character.variants.map((v) => (
-            <Tooltip key={v.id} content={v.content} prefer="vertical">
+            <Tooltip key={v.id} content={describeEntry(v.content, v)} prefer="vertical">
               <button
                 className={`sel-variant ${v.selected ? "on" : ""}`}
                 role="switch"
@@ -214,7 +231,17 @@ function OwnEntry({
 }: {
   conv: Conversation;
   kind: "setting" | "character";
-  entry: { id: string; title?: string; name?: string; content?: string; description?: string };
+  entry: {
+    id: string;
+    title?: string;
+    name?: string;
+    content?: string;
+    description?: string;
+    category?: string;
+    positive: string[];
+    negative: string[];
+    prose: string;
+  };
   row: (actions: ReactNode) => ReactNode;
 }) {
   const removeEntry = useProjects((s) => s.removeEntry);
@@ -223,16 +250,30 @@ function OwnEntry({
   const [editing, setEditing] = useState(false);
   const label = entry.title ?? entry.name ?? "";
   const body = entry.content ?? entry.description ?? "";
-  const [draftLabel, setDraftLabel] = useState(label);
-  const [draftBody, setDraftBody] = useState(body);
+  const fields = {
+    label,
+    body,
+    category: entry.category ?? "",
+    positive: joinTags(entry.positive),
+    negative: joinTags(entry.negative),
+    prose: entry.prose,
+  };
+  const [draft, setDraft] = useState(fields);
+  const edit = (patch: Partial<typeof fields>) => setDraft((d) => ({ ...d, ...patch }));
 
   async function save() {
-    // only what changed: text sent back as it was would read as an edit of
-    // the text, and the lines would be rewritten from it for nothing
-    const patch: Record<string, string> = {};
-    const nextLabel = draftLabel.trim();
+    // only what changed: a note sent back as it was would read as an edit,
+    // and the tags would be rewritten from it for nothing
+    const patch: EntryPatch = {};
+    const nextLabel = draft.label.trim();
     if (nextLabel && nextLabel !== label) patch[kind === "setting" ? "title" : "name"] = nextLabel;
-    if (draftBody !== body) patch[kind === "setting" ? "content" : "description"] = draftBody;
+    if (draft.body !== body) patch[kind === "setting" ? "content" : "description"] = draft.body;
+    if (kind === "setting" && draft.category.trim() !== fields.category) patch.category = draft.category.trim();
+    const positive = splitTags(draft.positive);
+    if (!sameTags(positive, entry.positive)) patch.positive = positive;
+    const negative = splitTags(draft.negative);
+    if (!sameTags(negative, entry.negative)) patch.negative = negative;
+    if (draft.prose.trim() !== entry.prose) patch.prose = draft.prose.trim();
     if (Object.keys(patch).length) await editEntry(conv.id, kind, entry.id, patch);
     setEditing(false);
   }
@@ -243,7 +284,7 @@ function OwnEntry({
         className="icon-btn"
         aria-label={t.edit}
         title={t.edit}
-        onClick={() => { setDraftLabel(label); setDraftBody(body); setEditing(true); }}
+        onClick={() => { setDraft(fields); setEditing(true); }}
       >
         <EditIcon size={13} />
       </button>
@@ -274,15 +315,52 @@ function OwnEntry({
         <div className="sel-own-edit">
           <input
             className="info-input"
-            value={draftLabel}
-            onChange={(e) => setDraftLabel(e.target.value)}
+            value={draft.label}
+            aria-label={kind === "setting" ? t.title : t.name}
+            onChange={(e) => edit({ label: e.target.value })}
             maxLength={120}
           />
+          {kind === "setting" && (
+            <input
+              className="info-input"
+              value={draft.category}
+              placeholder={t.category}
+              aria-label={t.category}
+              onChange={(e) => edit({ category: e.target.value })}
+              maxLength={40}
+            />
+          )}
           <textarea
             className="info-input"
             rows={3}
-            value={draftBody}
-            onChange={(e) => setDraftBody(e.target.value)}
+            value={draft.body}
+            placeholder={t.note}
+            aria-label={t.note}
+            onChange={(e) => edit({ body: e.target.value })}
+          />
+          <textarea
+            className="info-input sel-own-tags"
+            rows={1}
+            value={draft.positive}
+            placeholder={t.positiveTags}
+            aria-label={t.positiveTags}
+            onChange={(e) => edit({ positive: e.target.value })}
+          />
+          <textarea
+            className="info-input sel-own-tags"
+            rows={1}
+            value={draft.negative}
+            placeholder={t.negativeTags}
+            aria-label={t.negativeTags}
+            onChange={(e) => edit({ negative: e.target.value })}
+          />
+          <textarea
+            className="info-input"
+            rows={2}
+            value={draft.prose}
+            placeholder={t.prose}
+            aria-label={t.prose}
+            onChange={(e) => edit({ prose: e.target.value })}
           />
           <div className="sel-own-actions">
             <button className="icon-btn" aria-label={t.save} title={t.save} onClick={() => void save()}>
@@ -303,8 +381,8 @@ function LibrarySection({ conv }: { conv: Conversation }) {
   const toggleSetting = useProjects((s) => s.toggleSetting);
   const loadSelection = useProjects((s) => s.loadSelection);
 
-  // An entry whose lines are being rewritten says so with a chip; ask again
-  // now and then while one is showing, so the chip clears on its own.
+  // An entry whose tags are being rewritten says so with a mark; ask again
+  // now and then while one is showing, so the mark clears on its own.
   const waiting = !!selection && anyStale(selection.settings, selection.characters);
   useEffect(() => {
     if (!waiting) return;
@@ -331,7 +409,7 @@ function LibrarySection({ conv }: { conv: Conversation }) {
 
   const settingHead = (s: SelectionPayload["settings"][number], actions: ReactNode) => (
     <div className="sel-head">
-      <Tooltip content={s.content} className="sel-label-wrap">
+      <Tooltip content={describeEntry(s.content, s)} className="sel-label-wrap">
         <button
           className="sel-row"
           role="switch"
@@ -340,6 +418,8 @@ function LibrarySection({ conv }: { conv: Conversation }) {
         >
           <SettingEntryIcon size={13} />
           <span className="sel-name">{s.title}</span>
+          <OriginMark entry={s} />
+          {s.category && <span className="sel-sub">{s.category}</span>}
           {s.lines_stale && (
             <span className="sel-stale" role="img" aria-label={staleHint()} title={staleHint()}><SyncIcon size={12} /></span>
           )}

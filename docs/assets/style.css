@@ -344,6 +344,7 @@ figure { margin: 10px 0 24px; }
 figure svg { width: 100%; height: auto; display: block; }
 figure img.shot { width: 100%; height: auto; display: block; border: 1px solid var(--rule); border-radius: 8px; box-shadow: var(--shadow); background: var(--card); }
 figure img.shot.narrow { max-width: 440px; }
+figure img.shot.medium { max-width: 600px; }
 .shots-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
 .shots-row img.shot { flex: 1 1 260px; max-width: 360px; }
 figcaption { color: var(--ink-3); font-size: 13.5px; margin-top: 8px; line-height: 1.6; }

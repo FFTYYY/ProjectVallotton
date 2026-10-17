@@ -38,6 +38,8 @@ from core.models import (
 )
 from core import ui_text
 
+#: what a PATCH of an entry may carry
+ENTRY_KEYS = {"title", "name", "content", "description", "category", "positive", "negative", "prose"}
 MAX_NAME = 120
 MAX_DEPTH = 8
 
@@ -59,15 +61,26 @@ def folder_to_dict(f: Folder, *, with_path: bool = False) -> dict:
     return data
 
 
+def _entry_fields(obj) -> dict:
+    """The fields every entry has: the tags, the prose, where it came from,
+    and whether a model still has to fill it from the note."""
+    return {
+        "positive": library.split_tags(obj.positive),
+        "negative": library.split_tags(obj.negative),
+        "prose": obj.prose or "",
+        "origin_seq": obj.origin_seq,
+        # the note was edited and the tags have not been rewritten from it
+        # yet (services/library_lines.py does that on the sweeper's clock)
+        "lines_stale": obj.lines_stale,
+    }
+
+
 def variant_to_dict(v: CharacterVariant) -> dict:
     return {
         "id": str(v.id),
         "title": v.title,
         "content": v.content,
-        "tags": library.lines_of(v.tags),
-        # the text was edited and the lines have not been rewritten from it
-        # yet (services/library_lines.py does that on the sweeper's clock)
-        "lines_stale": v.lines_stale,
+        **_entry_fields(v),
         "position": v.position,
     }
 
@@ -76,13 +89,11 @@ def character_to_dict(c: Character) -> dict:
     return {
         "id": str(c.id),
         "folder_id": str(c.folder_id) if c.folder_id else None,
-        # set on a conversation-layer entry: it belongs to that conversation
-        # alone and shadows a project entry of the same name
+        # set on a conversation-layer entry: it belongs to that conversation alone
         "conversation_id": str(c.conversation_id) if c.conversation_id else None,
         "name": c.name,
         "description": c.description,
-        "tags": library.lines_of(c.tags),
-        "lines_stale": c.lines_stale,
+        **_entry_fields(c),
         "position": c.position,
         "variants": [variant_to_dict(v) for v in c.variants.all()],
     }
@@ -95,8 +106,8 @@ def setting_to_dict(s: Setting) -> dict:
         "conversation_id": str(s.conversation_id) if s.conversation_id else None,
         "title": s.title,
         "content": s.content,
-        "tags": library.lines_of(s.tags),
-        "lines_stale": s.lines_stale,
+        "category": s.category or "",
+        **_entry_fields(s),
         "position": s.position,
     }
 
@@ -351,7 +362,7 @@ def move_item(request):
             conv.folder = parent
             conv.save(update_fields=["folder", "updated_at"])
             # the same move as set_conversation_folder: entries of the old
-            # project are out of reach, the new project's settings come on
+            # project are out of reach and their selections go
             library.rehome(conv)
             siblings = [
                 c
@@ -515,14 +526,21 @@ def setting_detail(request, setting_id: uuid.UUID):
         fields.append("title")
     if "content" in body and library.set_text(s, str(body.get("content") or "")):
         fields += ["content", "text_edited_at"]
-    if "tags" in body:
-        old = library.lines_of(s.tags)
-        s.tags = library.stamp_by(old, library.assign_ids(old, library.lines_of(body.get("tags")), "s"), "user")
-        fields.append("tags")
+    obj = s
+    if "category" in body and hasattr(obj, "category"):
+        setattr(obj, "category", str(body.get("category") or "").strip()[:40])
+        fields.append("category")
+    for key in ("positive", "negative"):
+        if key in body:
+            setattr(obj, key, library.split_tags(body.get(key)))
+            fields.append(key)
+    if "prose" in body:
+        obj.prose = str(body.get("prose") or "").strip()
+        fields.append("prose")
     if not fields:
         # nothing changed, but nothing was wrong either: text sent back as it
         # was is not an edit, and not an error
-        if not body.keys() & {"title", "name", "content", "description", "tags"}:
+        if not body.keys() & ENTRY_KEYS:
             return json_err(ui_text.NOTHING_TO_UPDATE)
         return json_ok(setting_to_dict(s))
     s.save(update_fields=fields + ["updated_at"])
@@ -589,14 +607,21 @@ def character_detail(request, character_id: uuid.UUID):
         fields.append("name")
     if "description" in body and library.set_text(c, str(body.get("description") or "")):
         fields += ["description", "text_edited_at"]
-    if "tags" in body:
-        old = library.lines_of(c.tags)
-        c.tags = library.stamp_by(old, library.assign_ids(old, library.lines_of(body.get("tags")), "k"), "user")
-        fields.append("tags")
+    obj = c
+    if "category" in body and hasattr(obj, "category"):
+        setattr(obj, "category", str(body.get("category") or "").strip()[:40])
+        fields.append("category")
+    for key in ("positive", "negative"):
+        if key in body:
+            setattr(obj, key, library.split_tags(body.get(key)))
+            fields.append(key)
+    if "prose" in body:
+        obj.prose = str(body.get("prose") or "").strip()
+        fields.append("prose")
     if not fields:
         # nothing changed, but nothing was wrong either: text sent back as it
         # was is not an edit, and not an error
-        if not body.keys() & {"title", "name", "content", "description", "tags"}:
+        if not body.keys() & ENTRY_KEYS:
             return json_err(ui_text.NOTHING_TO_UPDATE)
         return json_ok(character_to_dict(c))
     c.save(update_fields=fields + ["updated_at"])
@@ -669,16 +694,21 @@ def variant_detail(request, variant_id: uuid.UUID):
         fields.append("title")
     if "content" in body and library.set_text(v, str(body.get("content") or "")):
         fields += ["content", "text_edited_at"]
-    if "tags" in body:
-        old = library.lines_of(v.tags)
-        v.tags = library.stamp_by(old, library.assign_ids(
-            old, library.lines_of(body.get("tags")), "v",
-            taken=library.variant_ids_taken(v.character, exclude=v.id)), "user")
-        fields.append("tags")
+    obj = v
+    if "category" in body and hasattr(obj, "category"):
+        setattr(obj, "category", str(body.get("category") or "").strip()[:40])
+        fields.append("category")
+    for key in ("positive", "negative"):
+        if key in body:
+            setattr(obj, key, library.split_tags(body.get(key)))
+            fields.append(key)
+    if "prose" in body:
+        obj.prose = str(body.get("prose") or "").strip()
+        fields.append("prose")
     if not fields:
         # nothing changed, but nothing was wrong either: text sent back as it
         # was is not an edit, and not an error
-        if not body.keys() & {"title", "name", "content", "description", "tags"}:
+        if not body.keys() & ENTRY_KEYS:
             return json_err(ui_text.NOTHING_TO_UPDATE)
         return json_ok(variant_to_dict(v))
     v.save(update_fields=fields + ["updated_at"])
@@ -712,10 +742,12 @@ def create_conversation_setting(request, conv_id: uuid.UUID):
         return json_err(ui_text.TITLE_TAKEN)
     pos = (conv.own_settings.aggregate(m=Max("position"))["m"] or 0) + 1
     content = str(body.get("content") or "")
-    lines = library.stamp_by([], library.assign_ids([], library.lines_of(body.get("tags")), "s"), "user")
     s = Setting.objects.create(
         folder=None, conversation=conv, title=title, content=content,
-        tags=lines, position=pos, text_edited_at=timezone.now() if content.strip() else None,
+        category=str(body.get("category") or "").strip()[:40],
+        positive=library.split_tags(body.get("positive")), negative=library.split_tags(body.get("negative")),
+        prose=str(body.get("prose") or "").strip(),
+        position=pos, text_edited_at=timezone.now() if content.strip() else None,
     )
     conv.selected_settings.add(s)
     return json_ok(setting_to_dict(s), status=201)
@@ -739,18 +771,20 @@ def create_conversation_character(request, conv_id: uuid.UUID):
     pos = (conv.own_characters.aggregate(m=Max("position"))["m"] or 0) + 1
     with transaction.atomic():
         description = str(body.get("description") or "")
-        k_lines = library.stamp_by([], library.assign_ids([], library.lines_of(body.get("tags")), "k"), "user")
         c = Character.objects.create(
             folder=None, conversation=conv, name=name, description=description,
-            tags=k_lines, position=pos,
+            positive=library.split_tags(body.get("positive")), negative=library.split_tags(body.get("negative")),
+            prose=str(body.get("prose") or "").strip(), position=pos,
             text_edited_at=timezone.now() if description.strip() else None,
         )
         v_content = str(body.get("variant_content") or "")
-        v_lines = library.stamp_by([], library.assign_ids([], library.lines_of(body.get("variant_tags")), "v"), "user")
         v = CharacterVariant.objects.create(
             character=c,
             title=str(body.get("variant_title") or ui_text.DEFAULT_VARIANT_TITLE),
-            content=v_content, tags=v_lines, position=1,
+            content=v_content, position=1,
+            positive=library.split_tags(body.get("variant_positive")),
+            negative=library.split_tags(body.get("variant_negative")),
+            prose=str(body.get("variant_prose") or "").strip(),
             text_edited_at=timezone.now() if v_content.strip() else None,
         )
         conv.selected_variants.add(v)
@@ -810,14 +844,10 @@ def promote_character(request, character_id: uuid.UUID):
 
 def selection_payload(conv: Conversation) -> dict:
     """What this conversation can draw on, and what of it is switched on."""
+    # Both layers, same-name entries included: the lead is listed both too
+    # (the project one under its @ prefix, library.selection_for), and the
+    # person has to be able to see and switch what the lead sees.
     settings, characters = library.visible_entries(conv)
-    # a project entry a same-name conversation entry shadows is not drawn
-    # from (library.selection_for), so it is not listed as something to
-    # switch on either
-    own_titles = {s.title for s in settings if s.conversation_id}
-    own_names = {c.name for c in characters if c.conversation_id}
-    settings = [s for s in settings if s.conversation_id or s.title not in own_titles]
-    characters = [c for c in characters if c.conversation_id or c.name not in own_names]
     chosen_settings = set(conv.selected_settings.values_list("id", flat=True))
     chosen_variants = set(conv.selected_variants.values_list("id", flat=True))
     return {

@@ -296,6 +296,19 @@ LLM_ROAD_PROBE_SECONDS = float(env("LLM_ROAD_PROBE_SECONDS", "60") or 60)
 GROK_CONTEXT_WARN_RATIO = float(env("GROK_CONTEXT_WARN_RATIO", "0.8") or 0.8)
 NOVELAI_API_KEY = env("NOVELAI_API_KEY")
 NAI_MODEL = env("NAI_MODEL", "nai-diffusion-5-full")
+# How long a prompt NovelAI will read. 1471 tokens is the V5 Full figure the
+# prompt manual (core/prompts/drawing.txt) gives; the API does not refuse a
+# longer one, it paints as if the rest were not there, so the app counts for
+# itself (novelai.prompt_tokens, a T5 tokenizer) and tells the compressor. The
+# rule says what the limit applies to: "total" -- the base prompt and every
+# character prompt together (the negative on its own); "each" -- every one of
+# them separately.
+NAI_PROMPT_TOKEN_LIMIT = int(env("NAI_PROMPT_TOKEN_LIMIT", "1471") or 1471)
+NAI_PROMPT_TOKEN_RULE = env("NAI_PROMPT_TOKEN_RULE", "total") or "total"
+# The compressor (prompts/compressor.txt): when the assembled prompt is over
+# that limit, one more call on the drawing model's settings cuts it down
+# before the paint. Within the limit, nothing extra is called.
+TEST_RUNNER = "tests.runner.Runner"
 
 MCP_TOKEN = env("MCP_TOKEN")
 

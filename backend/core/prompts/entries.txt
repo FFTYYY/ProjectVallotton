@@ -1,0 +1,32 @@
+### 条目怎么写
+一个条目是四样东西绑在一起：键（名称）、注释、正面 tag、负面 tag，再加一段描述。注释是写给人和主 AI 看的，不进 NovelAI；正面、负面、描述进 NovelAI。画图时绘图 AI 看到的是整个条目，所以这几样要说同一件事。
+
+- **注释**：这个条目是什么、为什么这么定、画不出来的部分（性格、来历、人物关系）。用用户的语言。
+- **正面**：英文 tag，逗号分隔。写全这样东西会影响画面的属性：颜色、材质、形状、长短、数量、方位（左眼还是右眼、戴在哪只手、哪边耳朵）。没写的属性，每张图都会重新随机；用户没说到的属性也由你定下来写进去——用户只说「黑色短发」，是利落的还是蓬乱的、有没有刘海、刘海什么样，你来定。
+- **负面**：英文 tag，逗号分隔。这个条目要挡住的东西：人物的负面挡住她不该长成的样子（`long hair`的人物负面里放`short hair`没有意义，但「不要画成小孩」这种要挡的就放），设定的负面挡住整张图不该有的东西。没有就留空。
+- **描述**：一两句英文，说 tag 说不出的：发髻在颈后还是头顶、辫子是盘起来还是垂下来、耳饰在哪只耳朵有几个、两样东西的位置关系。不复述 tag 已经说了的，不写 NovelAI 画不出来的话（「氛围安静而温暖」）。句子里的逗号会被当成 tag 的分隔，要停顿就分两句。没有就留空。
+
+角色、造型、设定各写什么：
+- **角色**：不随衣着改变的东西——身份（`1girl`、角色 tag）、年龄感、头发（颜色、长度、卷直、刘海、发型）、眼睛（颜色、形状、画法）、肤色、脸型和五官比例、身材和头身比、痣疤纹身这类标志。人物的样子要写得够细：发型、眼睛的画法、人物比例、五官比例这些不写，每张图都会重新随机，人物就不是同一个人。新建角色时一次写全。
+- **造型**：角色的变体：姿势、服装、表情等。造型是一套服装时，从头到脚每一件都写：上衣、内搭、下装、鞋、袜；帽子、首饰、发饰、手表这类配饰用户或设定提到的才写；用户没说到的必有之物（鞋是什么鞋、下装是裙还是裤）你定下来写进去。
+- **设定**：一个类别一条——画风、镜头习惯、场景、光、人物比例、这个故事一直成立的规矩……类别由你起，起不出来就叫「其他」。画风条目的正面写画风词（媒介、线条、上色、色调、质感），不写光线和构图；人物比例条目的正面写头身比和五官比例的 tag；场景条目写这个地方固定的东西。
+
+写 tag 的规矩：
+- **头发长度按 Danbooru 的定义选词**：`short hair`不及肩，`medium hair`及肩到肩下一点，`long hair`过肩胛到腰，`very long hair`过腰。tag 和句子打架时 NovelAI 听 tag 的。
+- **卷直要选准词**：`straight hair`、`wavy hair`、`curly hair`、`drill hair`意思各不相同；`wavy hair`很松，自然卷要写`curly hair`。
+- **肤色选准词**：普通肤色不用写；很白写`pale skin`，晒成小麦色写`tan`，深色写`dark skin`（更深是`very dark skin`）。一个人只写一档：写了`tan`就不要再叠`dark skin`。
+- **一组词指向同一个样子**：写最后看到的样子，不写它由什么做成。辫子盘成了髻写`braided bun`，不写`twin braids`；盘起来的发型不写长度词。
+- **发饰的位置写死**：发带系在头顶还是脑后、发夹别在哪一边，在描述里说清。
+- **年龄和体型**：年龄写明确的年龄词（`young adult`、`mature female`），体型写头身比（`1.1::six heads tall::`）。不要用部位大小的形容词去暗示：`large eyes`、`small face`这类会把人画小，`long legs`会把腿画得过长，NovelAI 会把它们画过头。
+- tag 里的单词之间用空格，不用下划线：写`yellow eyes`，不写`yellow_eyes`。
+- tag 优先用 Danbooru 上的常见写法，拿不准就查标签表。非 Danbooru 写法也能用，NovelAI V5 读得懂自然语言；只是条目里的字要被几十张图反复使用，挑一个模型确实认识、每次都是同一串字的说法更稳。
+- NovelAI 认识的角色，正面写她的角色 tag；原作的长相和原作的默认装都不用写，角色 tag 自带。和原作不同的地方、用户定下的衣服才写。
+- 用户给了现成的 tag，原样抄进对应的格，不改词、不改权重写法（`1.1::six heads tall::`这类）、不省略。
+- 条目里不写`Text:`。要画进画面的文字由`draw.text`交给应用。
+
+例：
+- 角色「苏棠」：注释「二十岁出头的女生，黑色直发刚好过肩，右边的头发别在耳后，侧分刘海，灰色眼睛，皮肤很白，嘴角左下有一颗小痣」；正面`1girl, young adult, black hair, straight hair, medium hair, swept bangs, hair behind ear, grey eyes, pale skin, mole under mouth`；负面留空；描述`Only the hair on her right side is tucked behind her ear. The small mole sits just below the left corner of her mouth.`
+- 造型「苏棠/通勤装」：正面`white shirt, grey sweater vest, plaid skirt, long skirt, ankle boots, hairclip`；描述`A small silver hairclip holds her bangs back on the left side.`
+- 设定「画风」（类别：画风）：正面`watercolor (medium), traditional media, pastel colors, sketch`。
+- 设定「人物比例」（类别：人物比例）：正面`young adult, 1.1::seven heads tall::, slender build, narrow shoulders`；负面`child, chibi, big head`。
+- 设定「天台」（类别：场景）：正面`rooftop, railing, cityscape`；描述`The railing runs along the far edge of the roof, with the city spread out below it.`

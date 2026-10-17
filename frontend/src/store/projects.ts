@@ -16,6 +16,7 @@ import { Latest } from "../lib/latest";
 import type {
   ArchivePayload,
   Character,
+  EntryPatch,
   Folder,
   FolderLibrary,
   LibraryProposal,
@@ -98,14 +99,11 @@ interface ProjectsState {
 
   loadLibrary: (folderId: string) => Promise<void>;
   createSetting: (folderId: string, title: string) => Promise<Setting | null>;
-  updateSetting: (folderId: string, id: string, patch: Partial<Setting>) => Promise<void>;
+  /** a patch carries only what changed: the note, the category, the tags, the prose */
+  updateSetting: (folderId: string, id: string, patch: EntryPatch) => Promise<void>;
   deleteSetting: (folderId: string, id: string) => Promise<void>;
   createCharacter: (folderId: string, name: string) => Promise<Character | null>;
-  updateCharacter: (
-    folderId: string,
-    id: string,
-    patch: Partial<Character>,
-  ) => Promise<void>;
+  updateCharacter: (folderId: string, id: string, patch: EntryPatch) => Promise<void>;
   deleteCharacter: (folderId: string, id: string) => Promise<void>;
   createVariant: (folderId: string, characterId: string, title: string) => Promise<void>;
   deleteVariant: (folderId: string, characterId: string, id: string) => Promise<void>;
@@ -113,7 +111,7 @@ interface ProjectsState {
     folderId: string,
     characterId: string,
     id: string,
-    patch: Partial<Variant>,
+    patch: EntryPatch,
   ) => Promise<void>;
 
   loadSelection: (convId: string) => Promise<void>;
@@ -136,7 +134,7 @@ interface ProjectsState {
     convId: string,
     kind: "setting" | "character",
     id: string,
-    patch: { title?: string; name?: string; content?: string; description?: string },
+    patch: EntryPatch,
   ) => Promise<void>;
 
   loadProposals: (convId: string) => Promise<void>;

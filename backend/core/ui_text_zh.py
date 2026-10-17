@@ -90,7 +90,6 @@ NOTHING_TO_BRANCH = "没有可分支的内容"
 GENERATION_FAILED = "生成失败"
 JOB_INTERRUPTED = "任务中断（后端在生成过程中重启了）。请重试。"
 EDIT_CHANGED_NOTHING = "绘图 AI 没有改出任何东西：这一张和上一张一字不差。请换个说法再试。"
-EDIT_WITHOUT_PICTURE = "这张图是旧版本画的，没有可改的表征表，改不了。请重新描述整张画面。"
 JOB_INTERRUPTED_MAYBE = "任务中断（后端可能在生成过程中重启了）。请重试。"
 #: what the lead's turn says when the model answered with nothing at all
 EMPTY_REPLY_FALLBACK = "……抱歉，我走神了。能再说一遍吗？"
@@ -133,61 +132,28 @@ PROPOSAL_CREATED_SETTING = "新建设定「{title}」"
 PROPOSAL_UPDATED_SETTING = "更新设定「{title}」"
 PROPOSAL_CREATED_CHARACTER = "新建角色「{name}」"
 PROPOSAL_UPDATED_CHARACTER = "更新角色「{name}」"
-PROPOSAL_CREATED_VARIANT = "新建造型「{name}·{title}」"
+PROPOSAL_CREATED_VARIANT = "新建变体「{name}·{title}」"
 PROPOSAL_UPDATED_VARIANT = "更新「{name}·{title}」"
-#: The same, for an entry made in the conversation's own layer. It says so:
-#: the card would otherwise read the same for both layers, and the two are
-#: not the same thing -- one every conversation of the project can use, the
-#: other this one alone.
-PROPOSAL_CREATED_SETTING_OWN = "新建设定（对话级）「{title}」"
-PROPOSAL_CREATED_CHARACTER_OWN = "新建角色（对话级）「{name}」"
-PROPOSAL_CREATED_VARIANT_OWN = "新建造型（对话级）「{name}·{title}」"
-
-# ---------------------------------------------------------------- a change list that could not be applied, as the inspector shows it
-#: Why a change list was refused. Shown in the log and 「检查」, never to the
-#: model: a refused list is retried as the same request.
-PATCH_NOT_AN_OBJECT = "{where}的改动不是对象"
-PATCH_OP_NOT_ALLOWED = "{where}不允许{op}（只允许{allowed}）"
-PATCH_SUBJECT_NOT_AN_OBJECT = "characters的每一项都得是对象"
-PATCH_NO_SUCH_SUBJECT = "没有叫「{who}」的主体"
-PATCH_NO_SUCH_SUBJECT_SLOT = "主体{who}没有{slot}这一格"
-PATCH_PATCHES_SET_ONLY = "{who}.patches只能整组重写（只允许set）"
-PATCH_NO_SUCH_SLOT = "没有{slot}这一格"
-PATCH_FIELD_HALVES = "{where}的改动只能分成tags和prose两半，没有{key}"
-PATCH_SETTINGS_SET_ONLY = "settings只能整组重写（只允许set）"
-
-# ---------------------------------------------------------------- what the prompt check found, as the inspector shows it
-#: Shown in 检查 when a character cites a library tag line that is not there.
-#: Reaching here means an entry was edited between the two turns, or the model
-#: invented a line number; either way the words are silently missing from the
-#: picture, so it is worth saying out loud.
-#: {who} = the entry name, {lines} = the line ids, joined with 、.
-PROMPT_UNKNOWN_LINES = "{who}用了资料库里没有的tag行：{lines}"
-#: How a character with no library entry behind it is named in the line above.
-PROMPT_NAMELESS = "没有对应条目的主体"
-#: A setting pick naming lines the setting does not have. {title} = the entry.
-PROMPT_UNKNOWN_SETTING_LINES = "设定「{title}」没有这些行：{lines}"
-#: Shown in 检查 when the picture says solo but carries more than one subject.
-PROMPT_SOLO_WITH_OTHERS = "人数格写了solo，但画面里有不止一个主体"
-#: A library character whose identity line was not picked. {who} = the entry.
-PROMPT_IDENTITY_LINE_MISSING = "{who}的身份行{lines}没挑"
-#: A patch aimed at a line this picture did not pick. {who} = the subject key.
-PROMPT_PATCH_ON_UNPICKED_LINE = "{who}给没挑的行打了补丁：{lines}"
-#: A `look` that re-describes something the picked lines already say.
-PROMPT_MULTI_WITHOUT_CENTER = "两个以上主体，这几个没给center坐标（位置靠NovelAI自己排）：{who}"
-PROPOSAL_LINES_DROPPED = "「{name}」少了{n}行：{parts}"
+#: a character and one of her variants, as a person reads them
+ENTRY_VARIANT = "{name}·{title}"
 #: A project write refused because the project already has that name: the
 #: conversation's entry stays where it is. {name} = the entry's name.
 PROPOSAL_NAME_TAKEN = "无法写入，项目里已经有同名的「{name}」"
 #: between the phrases of one card's summary
 PROPOSAL_SUMMARY_SEP = "；"
+
+# ---------------------------------------------------------------- notes on a turn, as the inspector shows them
+#: When the prompt sent is over NovelAI's limit, compressed or not: NovelAI
+#: reads the first part of it only. {tokens} = the count, {limit} = the cap.
+PROMPT_OVER_LIMIT = "超出 NovelAI 的长度上限：{tokens}/{limit} token，后面的部分 NovelAI 不读"
+#: The lead exposed keys no entry answers to. {keys} = joined with 、.
+EXPOSE_UNKNOWN = "找不到这些条目：{keys}"
+#: What the lead wrote into this conversation's library. {what} = one phrase
+#: per entry, joined with 、.
+LIBRARY_WRITTEN = "写进本对话的资料库：{what}"
 PROPOSAL_NOT_RECORDED = "主AI的资料库建议没记下来：{error}"
 PAINT_ONE_FAILED = "这一批 {n} 张里有一张没画出来：{error}"
 STOPPED_KEPT_PICTURES = "已停止；留下了画出来的图"
-COPY_FROM_MISSED = "「{name}」的 copy_from 指的图 {picture} 找不到，按主 AI 的记忆记的"
-PROMPT_LINE_NOT_ENGLISH = "「{who}」的行{line}里有中文：行只写英文tag，中文描述给绘图AI的brief"
-PROMPT_SENTENCE_IN_TAGS = "{where}的tags半边里写了句子（句子该放prose）：{text}"
-PROMPT_LOOK_ECHOES_LINES = "{who}的look重复了条目行里的东西：{tags}"
 
 # ---------------------------------------------------------------- a model call that failed, as the row's error
 #: Thinking and answering share one token budget and this answer ran out of it.

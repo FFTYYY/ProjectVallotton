@@ -1,7 +1,7 @@
 """
 Regenerate tests/fixtures/prompt_*.txt: the assembled system prompts with
-the ORIGINAL 「使用场景」 texts (tests_prompt_scenario.ORIGINAL_*). Run after editing lead.txt,
-drawing.txt or tag_lines.txt on purpose:
+the ORIGINAL 「使用场景」 texts (tests_prompt_scenario.ORIGINAL_*). Run after
+editing lead.txt, drawing.txt or entries.txt on purpose:
 
     cd backend && python tests/update_prompt_snapshots.py
 """
@@ -26,7 +26,6 @@ from tests.tests_prompt_scenario import ORIGINAL_DRAW, ORIGINAL_LEAD  # noqa: E4
 
 # in Chinese, whatever the development database has chosen
 with override_settings(LEAD_USAGE_SCENARIO=ORIGINAL_LEAD, DRAW_USAGE_SCENARIO=ORIGINAL_DRAW), i18n.use("zh"):
-    for name, text in (("lead", prompts.lead()), ("drawing", prompts.drawing()),
-                       ("drawing_edit", prompts.drawing() + "\n\n" + prompts.drawing_edit())):
+    for name, text in (("lead", prompts.lead()), ("drawing", prompts.drawing())):
         (HERE / "fixtures" / f"prompt_{name}.txt").write_text(text, encoding="utf-8", newline="\n")
         print(f"prompt_{name}.txt: {len(text)} chars")

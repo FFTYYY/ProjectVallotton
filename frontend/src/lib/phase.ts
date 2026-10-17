@@ -11,6 +11,7 @@ import { t } from "../uiText";
  */
 export function reflectStage(inner: string): string {
   if (inner === "prompting") return t.reflectPrompting;
+  if (inner === "compressing") return t.reflectCompressing;
   if (inner.startsWith("lookup")) return t.reflectLookup;
   if (inner.startsWith("retry:")) return t.reflectRetry;
   if (inner.startsWith("painting")) return t.reflectPainting;
@@ -27,6 +28,9 @@ function stageLabel(phase: string): string {
   // rather than letting the same soothing line sit there twice as long
   if (phase === "retry:thinking") return t.phaseRetryThinking;
   if (phase === "retry:prompting") return t.phaseRetryPrompting;
+  // the prompt was over NovelAI's limit and is being cut down
+  if (phase === "compressing") return t.phaseCompressing;
+  if (phase === "retry:compressing") return t.phaseRetryCompressing;
   if (phase.startsWith("painting")) {
     const part = phase.split(":")[1];
     return part ? t.phasePaintingPart(part) : t.phasePainting;

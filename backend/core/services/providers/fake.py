@@ -26,7 +26,6 @@ them is a test that fails on an edit to prose.
 from __future__ import annotations
 
 import itertools
-import json
 import os
 import re
 import time
@@ -68,12 +67,28 @@ _failed = 0
 #: `lookup` once, the app runs it against the real index and asks again, and
 #: the second answer is the ordinary one — the whole loop, driven for real.
 LOOKUP_MARK = "查标签"
-#: A turn that changes the previous drawing rather than making a new one.
+#: A turn that changes the previous drawing rather than making a new one:
+#: `inherits` names it, the description is written whole.
 EDIT_MARK = "改一下"
-#: The same, but the way the real lead sometimes says it: a `change` with no
-#: `continues` at all. The app has to read that as a change to the latest
-#: drawing, and a suite can only check that if the stub can say it.
-NAMELESS_EDIT_MARK = "改最近"
+#: A turn that writes a setting into this conversation's library: 「黄昏」 in
+#: the text becomes the entry's key. With PROJECT_MARK as well, the same
+#: entry is also proposed for the project (an edit with the @ prefix).
+REMEMBER_WORDS = ("记下来", "记住", "记到")
+PROJECT_MARK = "进项目"
+#: A turn that writes a character: 角色「林晚」 becomes a character entry with
+#: one outfit, 「林晚/日常装」.
+CHARACTER_MARK = "角色「"
+#: What the stand-in writes into an entry it makes: enough for the picture
+#: to be assembled from it and for a suite to see which entry was used.
+STUB_SETTING_TAGS = "sunset, warm lighting"
+STUB_CHARACTER_TAGS = "1girl, silver hair, blue eyes"
+STUB_VARIANT_TAGS = "white dress"
+STUB_PICTURE_TAGS = "1girl, solo, looking at viewer"
+#: What the stand-in writes when it is asked to fill an entry from its note
+#: (the patrol): the hair follows one word of the note, which is how a suite
+#: sees that the entry was written FROM the note.
+STUB_FILL_BROWN = "1girl, brown hair"
+STUB_FILL_BLACK = "1girl, black hair"
 
 
 def _flag(name: str, default: str) -> int:
@@ -144,53 +159,23 @@ class FakeProvider(Provider):
             # alone and failed in a sweep. A turn is the right scope because
             # every reflection sequence sits inside exactly one.
             self._reflections = itertools.count()
-            said = _last_user(messages)
-            # "改" with a drawing in the history: an edit of that drawing, so
-            # a browser run exercises the change-list path and the seed that
-            # follows the main picture
-            previous = _last_draw_id(messages) if EDIT_MARK in said else ""
-            nameless = NAMELESS_EDIT_MARK in said and bool(_last_draw_id(messages))
-            parsed = {
-                "reply": f"假模型收到：{said[:40]}" if said else "假模型收到。",
-                "continues": previous,
-                "draw": None if "不用画" in said
-                else ({"change": said} if previous or nameless else _brief()),
-                "edits": _edits(said),
-            }
+            parsed = _turn(_last_user(messages), messages)
         elif kind == "novelai_prompts":
-            # Slots, like the real drawing model: the app assembles them (see
-            # services/prompt.py) and a fake that still returned one finished
-            # base_prompt would never exercise the assembly.
-            blank = {"tags": "", "prose": ""}
-            parsed = {
-                "size": "portrait",
-                "count": {"tags": "1girl, solo", "prose": ""},
-                "style": dict(blank),
-                "camera": dict(blank),
-                "scene": dict(blank),
-                "light": dict(blank),
-                "other": dict(blank),
-                "text": "",
-                "settings": [],
-                "characters": [
-                    {"from": "", "use": "", "patches": [],
-                     "look": {"tags": "looking at viewer", "prose": ""},
-                     "moment": dict(blank),
-                     "center_x": None, "center_y": None},
-                ],
-                "negative_prompt": "lowres, bad anatomy",
-            }
-        elif kind == "novelai_patch":
-            # an edit: change one half of one slot and leave the rest to the merge
-            parsed = {"other": {"prose": {"set": "redrawn by the stand-in"}}}
-        elif kind == "library_lines":
-            parsed = {"lines": _lines_for(_last_user(messages))}
+            parsed = _picture(_last_user(messages))
+        elif kind == "library_entry":
+            parsed = _fill(_last_user(messages))
         elif kind == "vallotton_reflection":
             n = next(self._reflections)
             parsed = {
                 "reply": "假模型的检查结论。",
-                "draw": {"change": "再亮一点"} if n < self._redraw_rounds else None,
+                "settings": [], "characters": [], "edits": None,
+                # the app fills `inherits` in with the drawing being looked at
+                "draw": _draw("再亮一点", []) if n < self._redraw_rounds else None,
             }
+        elif kind == "compressed_prompts":
+            # the prompt back as it came: the stand-in has no opinion, and
+            # what the suites expect to see painted is the drawing stub's words
+            parsed = _echo_prompt(_last_user(messages))
         else:
             raise LLMError(
                 f"the fake provider was handed a schema it does not know: {kind!r}"
@@ -265,13 +250,114 @@ def _last_draw_id(messages: list[dict]) -> str:
     return ""
 
 
-def _lines_for(text: str) -> list[dict]:
+# ------------------------------------------------------------- the lead
+
+
+def _turn(said: str, messages: list[dict]) -> dict:
     """
-    Lines for an entry's text, enough to show that a sweep wrote them FROM the
-    text: the hair line follows one word of it.
+    One lead turn, decided from what the user typed.
+
+    「X」 with a remember word writes setting X into this conversation; 角色「X」
+    writes character X with one outfit; EDIT_MARK makes the picture an edit of
+    the newest drawing; 不用画 draws nothing. Everything written this turn is
+    exposed to the drawing stub, so a suite can watch an entry travel from the
+    lead's answer into the prompt NovelAI is sent.
     """
-    hair = "brown hair" if "棕" in text else "black hair"
-    return [{"part": "身份", "tags": "1girl"}, {"part": "头发", "tags": hair}]
+    settings = _settings(said)
+    characters = _characters(said)
+    edits = None
+    if settings and PROJECT_MARK in said:
+        edits = {"settings": [{**s, "key": "@" + s["key"]} for s in settings], "characters": []}
+    expose = [s["key"] for s in settings]
+    for ch in characters:
+        expose += [f"{ch['key']}/{v['key']}" for v in ch["variants"]] or [ch["key"]]
+    previous = _last_draw_id(messages) if EDIT_MARK in said else ""
+    return {
+        "reply": f"假模型收到：{said[:40]}" if said else "假模型收到。",
+        "settings": settings,
+        "characters": characters,
+        "edits": edits,
+        "draw": None if "不用画" in said else _draw(said or "一个人物站在窗前", expose, inherits=previous),
+    }
+
+
+def _draw(description: str, expose: list[str], *, inherits: str = "") -> dict:
+    return {"description": description, "expose": expose, "inherits": inherits,
+            "text": "", "size": "portrait"}
+
+
+def _settings(said: str) -> list[dict]:
+    if not any(w in said for w in REMEMBER_WORDS):
+        return []
+    keys = [k for k in re.findall(r"「([^」]+)」", said.replace(CHARACTER_MARK, "角色『"))]
+    return [{"key": k, "category": "其他", "note": said[-80:],
+             "positive": STUB_SETTING_TAGS, "negative": "", "prose": ""} for k in keys[:1]]
+
+
+def _characters(said: str) -> list[dict]:
+    names = re.findall(re.escape(CHARACTER_MARK) + r"([^」]+)」", said)
+    return [{"key": n, "note": said[-80:], "positive": STUB_CHARACTER_TAGS, "negative": "", "prose": "",
+             "variants": [{"key": "日常装", "note": "", "positive": STUB_VARIANT_TAGS,
+                           "negative": "", "prose": ""}]}
+            for n in names[:1]]
+
+
+# ---------------------------------------------------------- the drawing
+
+
+def _exposed_keys(said: str) -> list[tuple[str, str]]:
+    """(key, kind) of every entry in the drawing model's message, read off
+    the lines library.exposure_text writes."""
+    out = []
+    for key, kind in re.findall(r"^◆ (.+?)（([^）·]+)", said, flags=re.M):
+        out.append((key, kind))
+    return out
+
+
+def _picture(said: str) -> dict:
+    """The drawing stub: every exposed entry used as it is, the picture's own
+    tags fixed, one subject per exposed character."""
+    exposed = _exposed_keys(said)
+    return {
+        "entries": [{"key": k, "use": True, "add_positive": "", "remove_positive": "",
+                     "add_negative": "", "remove_negative": "", "add_prose": "", "remove_prose": ""}
+                    for k, _ in exposed],
+        "positive": STUB_PICTURE_TAGS,
+        "negative": "",
+        "prose": "",
+        "subjects": [{"key": k, "center_x": None, "center_y": None}
+                     for k, kind in exposed if kind == wording.ENTRY_KIND_CHARACTER],
+        "size": "portrait",
+    }
+
+
+def _fill(note: str) -> dict:
+    """The patrol stub: an entry written FROM its note, visibly."""
+    return {"positive": STUB_FILL_BROWN if "棕" in note else STUB_FILL_BLACK,
+            "negative": "", "prose": ""}
+
+
+def _echo_prompt(said: str) -> dict:
+    """The prompt in the compressor's message, read back off its own lines
+    (llm.format_compress writes one per piece, under the prompts heading)."""
+    base_head = wording.REVIEW_PROMPT_BASE.split("{text}")[0]
+    negative_head = wording.REVIEW_PROMPT_NEGATIVE.split("{text}")[0]
+    char_head, char_mid = wording.REVIEW_PROMPT_CHAR.split("{key}")[0], \
+        wording.REVIEW_PROMPT_CHAR.split("{key}")[1].split("{text}")[0]
+    cneg_head, cneg_mid = wording.REVIEW_PROMPT_CHAR_NEGATIVE.split("{key}")[0], \
+        wording.REVIEW_PROMPT_CHAR_NEGATIVE.split("{key}")[1].split("{text}")[0]
+    out: dict = {"base_prompt": "", "character_prompts": [], "negative_prompt": ""}
+    for line in said.split(wording.REVIEW_PROMPTS_HEADING, 1)[-1].splitlines():
+        if line.startswith(base_head):
+            out["base_prompt"] = line[len(base_head):]
+        elif line.startswith(negative_head):
+            out["negative_prompt"] = line[len(negative_head):]
+        elif line.startswith(cneg_head) and cneg_mid in line and out["character_prompts"]:
+            out["character_prompts"][-1]["negative"] = line[len(cneg_head):].split(cneg_mid, 1)[1]
+        elif line.startswith(char_head) and char_mid in line:
+            name, prompt = line[len(char_head):].split(char_mid, 1)
+            out["character_prompts"].append({"name": name, "prompt": prompt, "negative": ""})
+    return out
 
 
 def _last_user(messages: list[dict]) -> str:
@@ -289,40 +375,3 @@ def _last_user(messages: list[dict]) -> str:
                     if text:
                         return text
     return ""
-
-
-def _edits(said: str) -> dict | None:
-    """
-    Propose a library entry when the turn asked for one to be remembered.
-
-    The trigger is what the suite types, not anything in a prompt file. Titles
-    come out of 「」 because that is how the suites name the thing they expect
-    to see written back.
-    """
-    if not any(w in said for w in ("记下来", "记住", "记到")):
-        return None
-    titles = re.findall(r"「([^」]+)」", said)
-    if not titles:
-        return None
-    # Scoped the way a model that read the prompt would: the project unless
-    # the turn says this conversation. 「不说层」 leaves the field out, which
-    # is the model forgetting, and the app has to have an answer for that.
-    entry = {"title": titles[0], "content": said[-80:]}
-    if "不说层" not in said:
-        entry["scope"] = "conversation" if "本对话" in said else "project"
-    return {"settings": [entry], "characters": []}
-
-
-def _brief() -> dict:
-    return {
-        "change": "",
-        "subjects": [{"who": "瓦洛东小姐", "outfit": "", "look": "银发少女",
-                      "changes": "", "doing": "侧身站立", "where": ""}],
-        "composition": "一个人物站在窗前",
-        "scene": "室内，午后",
-        "camera": "中景",
-        "light": "",
-        "style": "厚涂",
-        "notes": "",
-        "size": "portrait",
-    }

@@ -29,161 +29,80 @@ So it all lives here. Two rules for anything added below:
 from __future__ import annotations
 
 # ==========================================================================
-# The picture description, as the drawing model reads it
-#
-# format_brief() renders the lead model's `draw` object into labelled lines.
-# The key order here is the order they are written in — scene first, then who,
-# then how they are posed, then where, from what angle, in what style.
+# Entries, and the drawing model's message
 # ==========================================================================
 
-BRIEF_LABELS = {
-    "main": "画面内容",
-    "character": "人物",
-    "pose": "姿势与表情",
-    "scene": "场景 / 背景 / 光线 / 时间",
-    "camera": "镜头角度",
-    "style": "风格",
-    "notes": "备注",
-}
-
-#: always appended; the value is portrait / landscape / square
-BRIEF_SIZE_LABEL = "画幅"
-
-#: The lead model's "这一张", as the drawing model reads it. One block for the
-#: picture, one line per subject; what is empty is left out.
-BRIEF_HEADING = "【这一张】"
-BRIEF_SUBJECTS_LABEL = "主体："
-BRIEF_SUBJECT_LABELS = {
-    "outfit": "造型",
-    "look": "外观",
-    "changes": "这一张不同的地方",
-    "doing": "在做什么",
-    "where": "位置",
-}
-BRIEF_PICTURE_LABELS = {
-    "change": "要改什么（找不到可改的上一张，这一张按新图画，但这段是用户要的）",
-    "composition": "画面",
-    "camera": "镜头",
-    "scene": "场景",
-    "light": "光",
-    "style": "画风",
-    "notes": "备注",
-}
-#: Heading over the library lines appended to the drawing model's message.
-BRIEF_LINES_HEADING = "【条目的行】"
-#: Edit turns: the previous picture, slot by slot, then what to change.
-CURRENT_PICTURE_HEADING = "【上一张图的提示词，分格列出】"
-CURRENT_SUBJECT = "主体「{key}」"
-CURRENT_SUBJECT_FROM = "（取自资料库的「{name}」）"
-CURRENT_TRUTH_HEADING = "真实表（上一张用了的标「用」）："
-CURRENT_TRUTH_USED = "用"
-#: Edit turns: the selected settings' lines, marked the same way, so the
-#: picture's setting picks are made again rather than inherited.
-CURRENT_SETTINGS_HEADING = "设定的行（上一张用了的标「用」）："
-CURRENT_SETTING = "设定「{title}」"
-CHANGE_HEADING = "【要改什么】"
-#: Appended to the drawing model's system prompt on an edit turn.
-DRAWING_EDIT_INTRO = (
-    "这一轮不是画一张新图，而是改上一张。规则见「改上一张」一节。" + 2 * chr(10)
-    + "下面先是上一张图的表征表（分格列出的 tag 和句子、挑了哪些行、打了什么补丁；每个主体旁边列着它真实表的全部行和上一张用了哪些），"
-    + "然后是主 AI 写的「要改什么」。你只写要改的那几处，没写到的格子应用会原样保留。" + chr(10)
-    + "什么都不用改就回一个空对象 {}。"
-)
+#: Entries, as both models read them (library.as_prompt_text for the lead,
+#: library.exposure_text for the drawing model): one block per entry, the
+#: key first, then the fields that are not empty.
+ENTRY_NOTE_LABEL = "注释"
+ENTRY_POSITIVE_LABEL = "正面"
+ENTRY_NEGATIVE_LABEL = "负面"
+ENTRY_PROSE_LABEL = "描述"
+ENTRY_EMPTY = "（还没有内容）"
+ENTRY_KIND_SETTING = "设定"
+ENTRY_KIND_CHARACTER = "角色"
+ENTRY_KIND_VARIANT = "造型"
+#: where an entry came from, beside its kind
+ENTRY_FROM_PROJECT = "项目层"
+#: the turn's drawing id, as the conversation shows it to the lead
+ENTRY_FROM_LEAD = "你在绘图 {id} 那一轮写的"
+#: written in a turn that drew nothing
+ENTRY_FROM_LEAD_NO_DRAW = "你写的"
+ENTRY_FROM_USER = "用户建的"
+#: The drawing model's message (llm.format_draw): the lead's description,
+#: the text to render, the size, then the exposed entries.
+DRAW_DESCRIPTION_HEADING = "【主要描述】"
+DRAW_TEXT_HEADING = "【要画进画面的文字】"
+DRAW_SIZE_HEADING = "【画幅】"
+DRAW_ENTRIES_HEADING = "【暴露的条目】"
+EXPOSURE_NONE = "（这一张没有暴露任何条目）"
+DRAW_NO_DESCRIPTION = "（主 AI 没有写描述，只暴露了条目）"
 
 
 # ==========================================================================
-# The library, for both models
+# The library, for the lead
 # ==========================================================================
-
-#: heading for the whole character section, when any character is switched on
-LIBRARY_CHARACTERS_HEADING = "【角色】"
-#: the fixed description of a character
-LIBRARY_CHARACTER_DESC_LABEL = "设定"
-#: one costume/variant of a character. {title} = the variant's name.
-LIBRARY_VARIANT_LABEL = "造型「{title}」"
-#: heading for the whole settings section, when any setting is switched on
-LIBRARY_SETTINGS_HEADING = "【设定】"
 
 #: Rides with the newest user turn in the LEAD model's history, whenever the
 #: conversation is in a project. A label only — what outranks what is
 #: lead.txt's and drawing.txt's business.
 LIBRARY_BLOCK_HEADING = "【本轮用户选中的资料库条目】"
 
-#: Appended to the DRAWING model's single user message, after the picture
-#: description, on the same condition.
-LIBRARY_FOR_DRAWING_HEADING = "【用户为这张图选中的资料库条目】"
-
 #: Said out loud when the conversation is in a project but nothing is ticked,
 #: so "no entries" is a stated fact rather than an absence the model has to
 #: infer from a missing section.
 LIBRARY_NONE = "【本轮用户没有选中任何资料库条目】"
-LIBRARY_FOR_DRAWING_NONE = "【这张图没有选中任何资料库条目】"
+
+#: The compressor's user message (llm.format_compress): what the drawing
+#: model was asked, as it was asked (the description and the exposed
+#: entries), then the limit and the counts, then the prompt as it would go
+#: to NovelAI.
+REVIEW_LIMIT_HEADING = "【长度】"
+REVIEW_LIMIT_LINE = "NovelAI 的上限是 {limit} 个 token，{rule}。现在：{counts}。"
+REVIEW_LIMIT_OVER = "超出 {over} 个 token，必须减掉。"
+REVIEW_LIMIT_FITS = "没有超出。"
+REVIEW_RULE = {
+    "total": "整张图的提示词和各主体的提示词合在一起计数，负面提示词单独计数",
+    "each": "整张图的提示词、各主体的提示词、负面提示词各自计数",
+}
+REVIEW_COUNT_BASE = "整张图 {n}"
+REVIEW_COUNT_CHAR = "主体「{key}」{n}"
+REVIEW_COUNT_NEGATIVE = "负面 {n}"
+REVIEW_COUNT_SEP = "、"
+REVIEW_PROMPTS_HEADING = "【提示词】"
+REVIEW_PROMPT_BASE = "整张图：{text}"
+REVIEW_PROMPT_CHAR = "主体「{key}」：{text}"
+REVIEW_PROMPT_CHAR_NEGATIVE = "主体「{key}」的负面：{text}"
+REVIEW_PROMPT_NEGATIVE = "负面：{text}"
 
 #: The first line of the library block: which layer a proposal may go to.
 LIBRARY_IN_PROJECT = (
-    "（这次对话属于项目「{project}」。项目层的条目这个项目里所有对话都能用；"
-    "标了「本次对话」的只在这次对话里）"
+    "（这次对话属于项目「{project}」。项目层的条目名字前带「@」，这个项目里所有对话都能用；"
+    "没有「@」的是这次对话自己的条目）"
 )
-LIBRARY_NO_PROJECT = "（这次对话不属于任何项目，新记下的条目只存在这次对话里）"
+LIBRARY_NO_PROJECT = "（这次对话不属于任何项目，你记下的条目只存在这次对话里）"
 LIBRARY_EMPTY = "（现在还没有任何条目）"
-LIBRARY_NOTHING_ON = "（这次对话还没挂上任何条目）"
-#: The rest of the project: entries that exist but are not switched on for
-#: this conversation, one line each. A character is switched on by being
-#: named in `subjects`; a setting only by the user, in the sidebar.
-LIBRARY_OFF_HEADING = (
-    "（下面这些条目在资料库里，但这次对话没挂上，所以只列名字。要画其中的角色，"
-    "`subjects`里`who`写条目名、`outfit`写造型名，应用会把它挂上、按它的行画，不要为它另建条目；"
-    "要用其中的设定，让用户在右边栏挂上）"
-)
-LIBRARY_OFF_CHARACTER = "◇ 角色「{name}」：{text}"
-LIBRARY_OFF_VARIANTS = "造型：{titles}"
-LIBRARY_OFF_SETTING = "◇ 设定「{title}」：{text}"
-#: One entry's heading. {name} / {title} = the entry's name.
-LIBRARY_CHARACTER_HEADING = "角色「{name}」"
-LIBRARY_SETTING_HEADING = "设定「{title}」"
-#: Appended to a conversation-layer entry's heading.
-LIBRARY_CONVERSATION_MARK = "（本次对话）"
-#: After a setting's 画风 line in the drawing model's rendering: the app
-#: splices these itself, the model is told so it neither writes nor picks them.
-LIBRARY_STYLE_LINE_MARK = "（画风行，应用自动拼进 style，不用挑）"
-LIBRARY_NO_LINES = "（资料库里还没有带 tag 的条目）"
-#: Under an entry that has prose but no lines: the prose is what there is.
-LIBRARY_PROSE_LABEL = "正文（没有 tag 行，照着写）"
-#: What a tag line's `part` says for the three lines the app itself
-#: recognises, by core.i18n code:
-#:   style     a setting's style line: goes into every picture's style slot
-#:             by itself, never picked
-#:   identity  the line that says who this is (`1girl`, a character tag):
-#:             picked for every picture whatever the composition
-#:   other     what the app writes when the model left the part blank
-#: The model is told the current language's word (the {{part_style}} and
-#: {{part_identity}} markers in the prompt files); the app recognises the
-#: word in every language, since an entry written before the switch keeps
-#: its lines. `part_word` says, `is_part` recognises.
-LINE_PARTS = {
-    "zh": {"style": "画风", "identity": "身份", "other": "其他"},
-    "en": {"style": "style", "identity": "identity", "other": "other"},
-}
-#: tag_lines.txt, after "`part`随意": in English the model is told to write
-#: the parts in English too; in Chinese nothing is added (the file is the
-#: prompt, byte for byte).
-PART_LANGUAGE_HINT = {
-    "zh": "",
-    "en": "（`part`也用英文写）",
-}
-
-
-def part_word(kind: str) -> str:
-    """The current language's word for the `style`, `identity` or `other` part."""
-    from core import i18n
-    return LINE_PARTS[i18n.current()][kind]
-
-
-def is_part(part: object, kind: str) -> bool:
-    """Whether a line's `part` names the `style`, `identity` or `other` line, in any language."""
-    return part in {table[kind] for table in LINE_PARTS.values()}
-#: The handle of a subject that is not a library entry: 主体1, 主体2…
-SUBJECT_KEY = "主体{n}"
 
 # ==========================================================================
 # The person's language, by core.i18n code
@@ -198,7 +117,7 @@ SUBJECT_KEY = "主体{n}"
 #: lead.txt 「你的性格」: the sentence that says what language replies are in
 REPLY_LANGUAGE = {
     "zh": "使用用户的语言（通常是中文）",
-    "en": "使用用户的语言（通常是英文）。资料库条目的名称、正文和 tag 行的 part 也用英文写",
+    "en": "使用用户的语言（通常是英文）。资料库条目的键和注释也用英文写",
 }
 #: lead.txt 「正文」 and patrol.txt: the word for the language of entry prose
 PROSE_LANGUAGE = {
@@ -210,6 +129,16 @@ PROSE_LANGUAGE = {
 #: the result, and the line added when no further lookups are allowed.
 LOOKUP_HEADING = "【标签表查询结果】（应用返回的数据，不是用户说的话）"
 LOOKUP_LAST = "这一轮的查询次数已用完，请直接给出正式回答。"
+
+#: The app's check of a finished lead answer: keys its draw exposes that the
+#: library does not hold and the answer does not write. Sent back once; the
+#: model answers again in full.
+EXPOSE_MISSING = (
+    "【应用检查】（应用发现的问题，不是用户说的话）\n"
+    "`expose`里这些条目资料库里没有，这次回答里也没有写：{keys}。"
+    "要用就在`settings`或`characters`里把它写出来（造型写在角色的`variants`里）；用不着就从`expose`里去掉。"
+    "整份回答重新给一遍，其余照旧。"
+)
 
 
 # ==========================================================================
@@ -243,10 +172,9 @@ SYSTEM_NOTE_PLAIN = SYSTEM_NOTE_OPEN + "]"
 #: that came back — so a later turn can point at an earlier picture and be
 #: understood.
 SYSTEM_NOTE_DRAW = SYSTEM_NOTE_OPEN + "本次绘图调用的id为 {id}]"
-#: The user set a different picture of a turn as its main one. {id} = the
-#: drawing's id, {n} = the picture's number, from 1.
-SYSTEM_NOTE_MAIN = SYSTEM_NOTE_OPEN + "用户把绘图 {id} 的第{n}张设为主图]"
-#: …the tags the drawing model made of that answer.
+#: …which entries that drawing exposed, by key ({keys} joined with 、), and
+#: the tags the drawing model made of that answer.
+APP_NOTE_EXPOSED = "这次绘图暴露给绘图AI的条目：{keys}"
 APP_NOTE_PROMPTS = "绘图AI实际发送给NovelAI的prompts："
 #: …and the pictures that came back.
 APP_NOTE_IMAGES = "以下是实际生成的图片："
@@ -261,7 +189,17 @@ APP_NOTE_REFERENCES_SKIPPED = "用户上一条消息里还有 {n} 张参考图�
 #: A message row with nothing in it at all — should not happen, but the array
 #: may not contain an empty string.
 EMPTY_USER_MESSAGE = "(空消息)"
-EMPTY_ASSISTANT_MESSAGE = "(空)"
+
+
+#: What the patrol is shown (services/library_lines.py): which entry
+#: ({title} / {name} = the entry's name, {category} = a setting's category),
+#: then its note, then the tags and prose it has now.
+FILL_FOR_SETTING = "设定「{title}」（类别：{category}）"
+FILL_CATEGORY_OTHER = "其他"
+FILL_FOR_CHARACTER = "角色「{name}」（不随衣着改变的样子）"
+FILL_FOR_VARIANT = "角色「{name}」的造型「{title}」（角色的变体：姿势、服装、表情等）"
+FILL_CURRENT = "现在的内容："
+FILL_NONE_YET = "（空）"
 
 
 # ==========================================================================
@@ -273,16 +211,6 @@ EMPTY_ASSISTANT_MESSAGE = "(空)"
 # state facts and no more: what matched, what did not, what was left unqueried.
 # When to look anything up is the prompt files' business.
 # ==========================================================================
-
-#: What the line writer is shown (services/library_lines.py): which entry,
-#: then its text, then the lines it has now.
-LINES_FOR_SETTING = "设定「{title}」"
-LINES_FOR_CHARACTER = "角色「{name}」（长相的行）"
-LINES_FOR_VARIANT = "角色「{name}」的造型「{title}」（这一套衣服配饰的行）"
-LINES_CURRENT = "现有的行（编号由应用管，你只给 part 和 tags；每行末尾标着最后是谁改的）："
-LINES_NONE_YET = "（还没有行）"
-LINE_BY_USER = "〔用户改的〕"
-LINE_BY_AI = "〔模型写的〕"
 
 #: First line of every answer: what the three columns are.
 TOOL_TAGS_COLUMNS = "标签\t图片数\t分类"
@@ -371,10 +299,6 @@ SCHEMA_PROSE_OUTRO = (
     "都可以，两种读起来是一样的；但不要改字段名，也不要增加字段。"
 )
 
-
-# --------------------------------------------------------------------------
-# prompt slots
-# --------------------------------------------------------------------------
 
 # --------------------------------------------------------------------------
 # model failures the user sees

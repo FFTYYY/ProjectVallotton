@@ -102,22 +102,7 @@ class TablesTests(SimpleTestCase):
                         self.assertNotIn("{{", word, f"{name}[{code}]")
                     if isinstance(phrase, dict):
                         self.assertEqual(sorted(phrase), sorted(value["zh"]), f"{name}[{code}]")
-        self.assertEqual(found, 5)   # REPLY_LANGUAGE, PROSE_LANGUAGE, LINE_PARTS, PART_LANGUAGE_HINT, TITLE_LANGUAGE
-
-    def test_the_part_words_are_said_in_the_current_language_and_recognised_in_all(self):
-        with i18n.use("zh"):
-            self.assertEqual(wording.part_word("style"), "画风")
-            self.assertEqual(wording.part_word("other"), "其他")
-        with i18n.use("en"):
-            self.assertEqual(wording.part_word("style"), "style")
-            self.assertEqual(wording.part_word("identity"), "identity")
-        for word in ("画风", "style"):
-            self.assertTrue(wording.is_part(word, "style"), word)
-            self.assertFalse(wording.is_part(word, "identity"), word)
-        self.assertTrue(wording.is_part("身份", "identity"))
-        self.assertTrue(wording.is_part("identity", "identity"))
-        self.assertFalse(wording.is_part(None, "style"))
-        self.assertFalse(wording.is_part("头发", "style"))
+        self.assertEqual(found, 3)   # REPLY_LANGUAGE, PROSE_LANGUAGE, TITLE_LANGUAGE
 
     def test_the_registry_is_consistent(self):
         self.assertEqual(i18n.CODES, tuple(i18n.BY_CODE))
@@ -362,19 +347,31 @@ class ApiTests(TestCase):
 
 
 class PromptTests(SimpleTestCase):
-    """What the model is told. In Chinese: exactly what it was told before.
-    In English: the same prompt, with only the lines that name the person's
-    language changed. The usage-scenario texts are the originals so the
-    fixtures of tests_prompt_scenario apply."""
+    """What the models are told. In Chinese: exactly what it was. In English:
+    the same prompts, with only the lines that name the person's language
+    changed -- the lead's reply and the note of an entry. The drawing model,
+    the compressor and the entry rules name no language at all. The
+    usage-scenario texts are the originals so the fixtures of
+    tests_prompt_scenario apply."""
 
     SCENARIO = dict(LEAD_USAGE_SCENARIO=ORIGINAL_LEAD, DRAW_USAGE_SCENARIO=ORIGINAL_DRAW)
+
+    #: the one sentence of lead.txt and the one of patrol.txt that carry
+    #: PROSE_LANGUAGE_MARK, with the Chinese word in place
+    LEAD_NOTE_ZH = "注释用" + wording.PROSE_LANGUAGE["zh"] + "说明这是什么样的画风"
+    PATROL_NOTE_ZH = "条目的" + wording.PROSE_LANGUAGE["zh"] + "注释是人写的"
+
+    @staticmethod
+    def _in(sentence: str, code: str) -> str:
+        return sentence.replace(wording.PROSE_LANGUAGE["zh"], wording.PROSE_LANGUAGE[code], 1)
 
     def test_in_chinese_the_prompts_are_what_they_were(self):
         with override_settings(**self.SCENARIO), i18n.use("zh"):
             self.assertEqual(prompts.lead(), (FIXTURES / "prompt_lead.txt").read_text(encoding="utf-8"))
-            self.assertIn("通常不要用 emoji。使用用户的语言（通常是中文）\n", prompts.lead())
-            self.assertIn("条目的中文正文（`description`、`content`）", prompts.lead())
-            self.assertIn("条目的中文正文是人读的；", prompts.patrol())
+            self.assertEqual(prompts.drawing(), (FIXTURES / "prompt_drawing.txt").read_text(encoding="utf-8"))
+            self.assertIn("通常不要用 emoji。" + wording.REPLY_LANGUAGE["zh"] + "\n", prompts.lead())
+            self.assertIn(self.LEAD_NOTE_ZH, prompts.lead())
+            self.assertIn(self.PATROL_NOTE_ZH, prompts.patrol())
 
     def test_in_english_only_the_language_lines_change(self):
         with override_settings(**self.SCENARIO):
@@ -384,53 +381,57 @@ class PromptTests(SimpleTestCase):
                 en_lead, en_patrol = prompts.lead(), prompts.patrol()
         self.assertNotEqual(en_lead, zh_lead)
         self.assertIn("通常不要用 emoji。" + wording.REPLY_LANGUAGE["en"] + "\n", en_lead)
-        self.assertIn("条目的英文正文（`description`、`content`）", en_lead)
-        parts_back = lambda s: (s.replace("「style」", "「画风」")
-                                .replace('"part":"identity"', '"part":"身份"')
-                                .replace(wording.PART_LANGUAGE_HINT["en"], ""))
-        back = parts_back(en_lead
-                          .replace(wording.REPLY_LANGUAGE["en"], wording.REPLY_LANGUAGE["zh"], 1)
-                          .replace("条目的英文正文（", "条目的中文正文（", 1))
+        self.assertIn(self._in(self.LEAD_NOTE_ZH, "en"), en_lead)
+        back = (en_lead.replace(wording.REPLY_LANGUAGE["en"], wording.REPLY_LANGUAGE["zh"], 1)
+                .replace(self._in(self.LEAD_NOTE_ZH, "en"), self.LEAD_NOTE_ZH, 1))
         self.assertEqual(back, zh_lead)
-        self.assertIn("条目的英文正文是人读的；", en_patrol)
-        self.assertIn("`part`写「style」", en_patrol)
-        self.assertIn(wording.PART_LANGUAGE_HINT["en"], en_patrol)
-        self.assertEqual(parts_back(en_patrol.replace("条目的英文正文是人读的；", "条目的中文正文是人读的；", 1)), zh_patrol)
+        self.assertNotEqual(en_patrol, zh_patrol)
+        self.assertIn(self._in(self.PATROL_NOTE_ZH, "en"), en_patrol)
+        self.assertEqual(en_patrol.replace(self._in(self.PATROL_NOTE_ZH, "en"), self.PATROL_NOTE_ZH, 1), zh_patrol)
 
-    def test_no_marker_survives_and_the_other_braces_do(self):
+    def test_the_prompts_that_name_no_language_read_the_same_in_every_language(self):
+        seen = {}
         for code in i18n.CODES:
             with override_settings(**self.SCENARIO), i18n.use(code):
-                for text in (prompts.lead(), prompts.patrol(), prompts.drawing(), prompts.tag_lines()):
-                    for mark in (prompts.REPLY_LANGUAGE_MARK, prompts.PROSE_LANGUAGE_MARK, prompts.TAG_LINES_MARK,
-                                 prompts.USAGE_MARK, prompts.PART_STYLE_MARK, prompts.PART_IDENTITY_MARK,
-                                 prompts.PART_LANGUAGE_MARK):
-                        self.assertNotIn(mark, text, code)
-                self.assertIn("`{{detailed background}}, {{scenery}}", prompts.lead())
+                seen[code] = (prompts.drawing(), prompts.compressor(), prompts.entries())
+        for code in i18n.CODES:
+            self.assertEqual(seen[code], seen["zh"], code)
 
-    def test_the_drawing_prompt_changes_only_the_style_part_word(self):
-        with override_settings(**self.SCENARIO):
-            with i18n.use("zh"):
-                zh = prompts.drawing() + prompts.drawing_edit()
-            with i18n.use("en"):
-                en = prompts.drawing() + prompts.drawing_edit()
-        self.assertIn("（`part`是「style」）", en)
-        self.assertEqual(en.replace("「style」", "「画风」"), zh)
+    def test_the_entry_rules_are_one_text_read_by_the_lead_and_the_patrol(self):
+        """One copy of how an entry is written: a rule the patrol followed and
+        the lead did not would be two kinds of entry for the same note."""
+        for code in i18n.CODES:
+            with override_settings(**self.SCENARIO), i18n.use(code):
+                rules = prompts.entries()
+                self.assertEqual(rules, prompts.load("entries"))
+                self.assertEqual(prompts.lead().count(rules), 1, code)
+                self.assertTrue(prompts.patrol().endswith("\n\n" + rules), code)
+                self.assertNotIn(prompts.ENTRIES_MARK, prompts.lead(), code)
+
+    def test_no_marker_survives_and_the_other_braces_do(self):
+        marks = (prompts.REPLY_LANGUAGE_MARK, prompts.PROSE_LANGUAGE_MARK, prompts.ENTRIES_MARK, prompts.USAGE_MARK)
+        for code in i18n.CODES:
+            with override_settings(**self.SCENARIO), i18n.use(code):
+                for text in (prompts.lead(), prompts.patrol(), prompts.drawing(), prompts.compressor(),
+                             prompts.entries()):
+                    for mark in marks:
+                        self.assertNotIn(mark, text, code)
+                self.assertIn("`{{tag}}`是乘`1.1025`", prompts.drawing())
+                self.assertIn('"expose": ["画风", "苏棠/通勤装", "@天台", "-旧条目"]', prompts.lead())
 
     def test_the_files_carry_each_marker_once_and_not_the_words(self):
         lead, patrol = prompts.load("lead"), prompts.load("patrol")
-        lines, drawing = prompts.load("tag_lines"), prompts.load("drawing")
+        others = (prompts.load("drawing"), prompts.load("compressor"), prompts.load("entries"))
         self.assertEqual(lead.count(prompts.REPLY_LANGUAGE_MARK), 1)
         self.assertEqual(lead.count(prompts.PROSE_LANGUAGE_MARK), 1)
+        self.assertEqual(lead.count(prompts.ENTRIES_MARK), 1)
         self.assertEqual(patrol.count(prompts.PROSE_LANGUAGE_MARK), 1)
         self.assertNotIn(prompts.REPLY_LANGUAGE_MARK, patrol)
-        for raw in (lead, patrol):
-            self.assertNotIn("通常是中文", raw)
-            self.assertNotIn("条目的中文正文", raw)
-        self.assertEqual(lines.count(prompts.PART_STYLE_MARK), 1)
-        self.assertEqual(lines.count(prompts.PART_IDENTITY_MARK), 1)
-        self.assertEqual(lines.count(prompts.PART_LANGUAGE_MARK), 1)
-        self.assertEqual(patrol.count(prompts.PART_STYLE_MARK), 1)
-        self.assertEqual(drawing.count(prompts.PART_STYLE_MARK), 2)
-        for raw in (lines, patrol, drawing):
-            self.assertNotIn("「画风」", raw)
-        self.assertNotIn('"part":"身份"', lines)
+        self.assertNotIn(prompts.ENTRIES_MARK, patrol)
+        for code in i18n.CODES:
+            self.assertNotIn(wording.REPLY_LANGUAGE[code], lead, code)
+            self.assertNotIn(self._in(self.LEAD_NOTE_ZH, code), lead, code)
+            self.assertNotIn(self._in(self.PATROL_NOTE_ZH, code), patrol, code)
+        for raw in others:
+            for mark in (prompts.REPLY_LANGUAGE_MARK, prompts.PROSE_LANGUAGE_MARK, prompts.ENTRIES_MARK):
+                self.assertNotIn(mark, raw)

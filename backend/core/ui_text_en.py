@@ -84,7 +84,6 @@ NOTHING_TO_BRANCH = "Nothing to branch from"
 GENERATION_FAILED = "Generation failed"
 JOB_INTERRUPTED = "The task was interrupted (the backend restarted while generating). Please try again."
 EDIT_CHANGED_NOTHING = "The drawing AI changed nothing: this picture is word for word the previous one. Try putting it another way."
-EDIT_WITHOUT_PICTURE = "This picture was drawn by an older version and has no table of what it shows, so it cannot be edited. Please describe the whole picture again."
 JOB_INTERRUPTED_MAYBE = "The task was interrupted (the backend may have restarted while generating). Please try again."
 #: what the lead's turn says when the model answered with nothing at all
 EMPTY_REPLY_FALLBACK = "…Sorry, my mind wandered. Could you say that again?"
@@ -129,59 +128,26 @@ PROPOSAL_CREATED_CHARACTER = "Created character “{name}”"
 PROPOSAL_UPDATED_CHARACTER = "Updated character “{name}”"
 PROPOSAL_CREATED_VARIANT = "Created variant “{name} · {title}”"
 PROPOSAL_UPDATED_VARIANT = "Updated “{name} · {title}”"
-#: The same, for an entry made in the conversation's own layer. It says so:
-#: the card would otherwise read the same for both layers, and the two are
-#: not the same thing -- one every conversation of the project can use, the
-#: other this one alone.
-PROPOSAL_CREATED_SETTING_OWN = "Created lore entry (conversation layer) “{title}”"
-PROPOSAL_CREATED_CHARACTER_OWN = "Created character (conversation layer) “{name}”"
-PROPOSAL_CREATED_VARIANT_OWN = "Created variant (conversation layer) “{name} · {title}”"
-
-# ---------------------------------------------------------------- a change list that could not be applied, as the inspector shows it
-#: Why a change list was refused. Shown in the log and the inspector, never to
-#: the model: a refused list is retried as the same request.
-PATCH_NOT_AN_OBJECT = "The change for {where} is not an object"
-PATCH_OP_NOT_ALLOWED = "{where} does not allow {op} (only {allowed})"
-PATCH_SUBJECT_NOT_AN_OBJECT = "Every item of characters must be an object"
-PATCH_NO_SUCH_SUBJECT = "There is no subject named “{who}”"
-PATCH_NO_SUCH_SUBJECT_SLOT = "Subject {who} has no slot {slot}"
-PATCH_PATCHES_SET_ONLY = "{who}.patches can only be rewritten whole (only set)"
-PATCH_NO_SUCH_SLOT = "There is no slot {slot}"
-PATCH_FIELD_HALVES = "The change for {where} can only have the tags and prose halves, not {key}"
-PATCH_SETTINGS_SET_ONLY = "settings can only be rewritten whole (only set)"
-
-# ---------------------------------------------------------------- what the prompt check found, as the inspector shows it
-#: Shown in the inspector when a character cites a library tag line that is not there.
-#: Reaching here means an entry was edited between the two turns, or the model
-#: invented a line number; either way the words are silently missing from the
-#: picture, so it is worth saying out loud.
-#: {who} = the entry name, {lines} = the line ids, joined with 、.
-PROMPT_UNKNOWN_LINES = "{who} uses tag lines the library does not have: {lines}"
-#: How a character with no library entry behind it is named in the line above.
-PROMPT_NAMELESS = "a subject with no entry behind it"
-#: A setting pick naming lines the setting does not have. {title} = the entry.
-PROMPT_UNKNOWN_SETTING_LINES = "Lore entry “{title}” has no such lines: {lines}"
-#: Shown in the inspector when the picture says solo but carries more than one subject.
-PROMPT_SOLO_WITH_OTHERS = "The count slot says solo, but the picture has more than one subject"
-#: A library character whose identity line was not picked. {who} = the entry.
-PROMPT_IDENTITY_LINE_MISSING = "The identity line {lines} of {who} was not picked"
-#: A patch aimed at a line this picture did not pick. {who} = the subject key.
-PROMPT_PATCH_ON_UNPICKED_LINE = "{who} patched a line that was not picked: {lines}"
-#: A `look` that re-describes something the picked lines already say.
-PROMPT_MULTI_WITHOUT_CENTER = "Two or more subjects, and these have no center coordinate (NovelAI places them itself): {who}"
-PROPOSAL_LINES_DROPPED = "“{name}” is missing {n} lines: {parts}"
+#: a character and one of her variants, as a person reads them
+ENTRY_VARIANT = "{name} · {title}"
 #: A project write refused because the project already has that name: the
 #: conversation's entry stays where it is. {name} = the entry's name.
 PROPOSAL_NAME_TAKEN = "Not written: the project already has “{name}”"
 #: between the phrases of one card's summary
 PROPOSAL_SUMMARY_SEP = "; "
+
+# ---------------------------------------------------------------- notes on a turn, as the inspector shows them
+#: When the prompt sent is over NovelAI's limit, compressed or not: NovelAI
+#: reads the first part of it only. {tokens} = the count, {limit} = the cap.
+PROMPT_OVER_LIMIT = "Over NovelAI's prompt limit: {tokens}/{limit} tokens; NovelAI reads only the first part"
+#: The lead exposed keys no entry answers to. {keys} = joined with 、.
+EXPOSE_UNKNOWN = "No such entries: {keys}"
+#: What the lead wrote into this conversation's library. {what} = one phrase
+#: per entry, joined with 、.
+LIBRARY_WRITTEN = "Written into this conversation's library: {what}"
 PROPOSAL_NOT_RECORDED = "The lead AI's library proposal was not recorded: {error}"
 PAINT_ONE_FAILED = "One of this batch of {n} pictures was not painted: {error}"
 STOPPED_KEPT_PICTURES = "Stopped; the pictures already painted were kept"
-COPY_FROM_MISSED = "Picture {picture}, which the copy_from of “{name}” points at, was not found; recorded from the lead AI's memory instead"
-PROMPT_LINE_NOT_ENGLISH = "Line {line} of “{who}” has Chinese in it: a line is English tags only, and a description goes in the brief for the drawing AI"
-PROMPT_SENTENCE_IN_TAGS = "The tags half of {where} has a sentence in it (sentences go in prose): {text}"
-PROMPT_LOOK_ECHOES_LINES = "The look of {who} repeats what the entry's lines already say: {tags}"
 
 # ---------------------------------------------------------------- a model call that failed, as the row's error
 #: Thinking and answering share one token budget and this answer ran out of it.

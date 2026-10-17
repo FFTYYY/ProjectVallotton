@@ -240,7 +240,8 @@ html[lang="en"] .empty-sub { font-family: var(--font-prose); }
 .gen-item:hover { border-color: var(--accent); }
 /* the turn's main picture: the one an edit starts from */
 .gen-item.main { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.draw-continues { margin-left: 10px; user-select: none; }
+/* a picture that changes an earlier drawing says which */
+.draw-edit { margin-left: 10px; user-select: none; }
 
 /* a slow breath while painting — never a bouncing skeleton */
 .gen-item.placeholder {
@@ -721,6 +722,21 @@ html[lang="en"] .empty-sub { font-family: var(--font-prose); }
 .used-chip.setting svg { color: var(--ink-3); }
 .used-chip.own { color: var(--own-deep); }
 .used-chip.own svg { color: var(--own); }
+/* exposed, but the drawing model left it out of this picture */
+.used-chip.unused,
+.used-entry.unused { opacity: 0.55; }
+.used-entry-origin { font-size: 11px; font-weight: 400; color: var(--ink-3); }
+.used-entry-tags {
+  display: block;
+  margin-top: 4px;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  word-break: break-word;
+}
+/* a character's own negative, under its prompt */
+.p-value.p-negative { color: var(--ink-3); }
 
 .used-collapse { width: 100%; }
 .used-detail { width: 100%; margin-top: 2px; padding: 4px 0 10px; }
@@ -945,8 +961,7 @@ html[lang="en"] .empty-sub { font-family: var(--font-prose); }
 .run-summary .msg-action { margin-left: auto; }
 
 
-/* a proposal's tag lines, under the prose they go with */
-.proposal-lines { display: grid; gap: 3px; margin-top: 6px; font-size: 12px; }
-.proposal-lines > div { display: flex; gap: 8px; align-items: baseline; }
-.proposal-line-part { color: var(--ink-2); flex-shrink: 0; }
-.proposal-lines code { font-family: "JetBrains Mono", Consolas, monospace; font-size: 11.5px; color: var(--ink-2); word-break: break-word; }
+/* a proposed entry's tags and prose, under the note they go with */
+.proposal-fields { display: grid; gap: 3px; margin-top: 6px; font-size: 12px; color: var(--ink-2); }
+.proposal-fields code { font-family: "JetBrains Mono", Consolas, monospace; font-size: 11.5px; word-break: break-word; }
+.proposal-category { margin-left: 6px; font-size: 11px; font-weight: 400; color: var(--ink-3); }

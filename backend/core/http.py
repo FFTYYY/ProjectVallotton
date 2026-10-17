@@ -9,7 +9,21 @@ import uuid
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 
-from core.services import gensettings, prompt as prompt_slots
+from core.services import gensettings
+
+
+def used_entries(prompt) -> list[dict]:
+    """The exposed entries of a drawn turn with what each came to, out of
+    the turn's assembly record; nothing for a turn without one."""
+    if not isinstance(prompt, dict):
+        return []
+    out = []
+    for r in prompt.get("assembly") or []:
+        if isinstance(r, dict) and r.get("key"):
+            out.append({"key": r["key"], "kind": r.get("kind"), "used": bool(r.get("used")),
+                        "positive": r.get("positive") or [], "negative": r.get("negative") or [],
+                        "prose": r.get("prose") or ""})
+    return out
 from core.models import Attachment, Conversation, Folder, Message
 from core import ui_text
 from core.services import notices
@@ -118,8 +132,9 @@ def message_to_dict(msg: Message) -> dict:
         # which of this turn's pictures is the main one, by attachment position
         "main_index": msg.main_index,
         "selection_snapshot": msg.selection_snapshot,
-        # what the picture actually took from the library, by entry and line
-        "used_entries": prompt_slots.used_entries(msg.prompt, msg.selection_snapshot) if msg.prompt else [],
+        # what the picture actually took from the library: each exposed entry,
+        # whether the drawing model used it, and what it came to
+        "used_entries": used_entries(msg.prompt),
         # pictures of a batch that failed to paint, said as the row says them
         "paint_errors": ((msg.model_raw or {}).get("paint_errors") or []) if isinstance(msg.model_raw, dict) else [],
         "prompt_tokens": msg.prompt_tokens,

@@ -10,7 +10,7 @@
 set -e
 cd "$(dirname "$0")"
 PY=".runtime/venv/bin/python"
-NEED='import django, httpx, PIL, whitenoise, rich'
+NEED='import django, httpx, PIL, whitenoise, sentencepiece, rich'
 
 # an environment from an earlier run: use it only if it is whole. One whose
 # dependencies never finished installing is set up again, not run.
