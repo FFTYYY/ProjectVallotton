@@ -18,7 +18,7 @@ import json
 from django.test import SimpleTestCase, TestCase
 
 from core.models import Character, CharacterVariant, Conversation, Folder, Message, Setting
-from core.services import library, llm, pipeline
+from core.services import library, llm, pipeline, proposals
 
 
 def _item(key, **kw):
@@ -179,3 +179,55 @@ class HistoryShowsTheWayTheLeadWritesTests(TestCase):
         said = json.loads(pipeline.assistant_answer(m))
         self.assertEqual([c["key"] for c in said["characters"]], ["林晚", "林晚/日常装"])
         self.assertEqual(said["characters"][1]["positive"], "white shirt")
+
+
+class NotesKeepTheirLinesTests(TestCase):
+    """A note's line breaks are the person's layout. The lead reads the note
+    with them, and an edit that sends the note back on one line -- the same
+    words -- leaves the stored note as it was."""
+
+    NOTE = "全系列统一画风。\n【线条】不描线。\n\n【上色】厚涂。"
+
+    def setUp(self):
+        self.folder = Folder.objects.create(name="项目")
+        self.conv = Conversation.objects.create(title="c", folder=self.folder)
+        self.style = Setting.objects.create(folder=self.folder, title="画风", content=self.NOTE,
+                                            positive=["painterly"], position=1)
+        self.conv.selected_settings.add(self.style)
+        self.turn = Message.objects.create(conversation=self.conv, role="assistant", seq=3, content="好")
+
+    def test_the_lead_reads_the_note_line_by_line(self):
+        text = library.as_prompt_text(library.selection_for(self.conv))
+        # as a JSON string: the form the lead writes it back in, with no
+        # layout of the listing's own to copy into it
+        self.assertIn('  注释："全系列统一画风。\\n【线条】不描线。\\n\\n【上色】厚涂。"\n', text)
+
+    def _edit(self, note, positive="painterly"):
+        staged = library.Staged(seq=3, in_project=True)
+        staged.add(llm._normalize_lead({"reply": "", "edits": {"settings": [
+            _item("@画风", note=note, positive=positive, category="画风")]}}), self.conv)
+        edits = staged.edits()
+        return pipeline._drop_noop_edits(self.conv, edits) if edits else None
+
+    def test_the_note_back_on_one_line_is_no_edit(self):
+        self.assertIsNone(self._edit("全系列统一画风。 【线条】不描线。 【上色】厚涂。"))
+
+    def test_an_approved_edit_keeps_the_layout_of_a_note_it_only_restated(self):
+        edits = self._edit("全系列统一画风。【线条】不描线。【上色】厚涂。", positive="painterly, impasto")
+        assert edits is not None
+        proposals.apply(proposals.record(self.conv, self.turn, edits))
+        self.style.refresh_from_db()
+        self.assertEqual((self.style.content, self.style.positive), (self.NOTE, ["painterly", "impasto"]))
+
+    def test_a_note_really_changed_is_written(self):
+        edits = self._edit("全系列统一画风。\n【线条】细描线。")
+        assert edits is not None
+        proposals.apply(proposals.record(self.conv, self.turn, edits))
+        self.style.refresh_from_db()
+        self.assertEqual(self.style.content, "全系列统一画风。\n【线条】细描线。")
+
+    def test_the_conversation_layer_keeps_its_layout_too(self):
+        library.write_conversation_entries(self.conv, 2, [_item("天台", note="天台。\n铁丝网。")], [])
+        library.write_conversation_entries(self.conv, 3, [_item("天台", note="天台。铁丝网。", positive="rooftop")], [])
+        own = Setting.objects.get(conversation=self.conv, title="天台")
+        self.assertEqual((own.content, own.positive), ("天台。\n铁丝网。", ["rooftop"]))

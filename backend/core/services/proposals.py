@@ -130,7 +130,7 @@ def _write_fields(obj, item: dict, *, now) -> None:
     the note alone (a proposal carried over from before entries) leaves the
     tags and prose to the patrol, which fills them from the note."""
     note = str(item.get("note") or "")
-    if note:
+    if note and not library.same_words(note, obj.lines_text):
         library.set_text(obj, note, now=now)
     if not any(field in item for field in LINES):
         return

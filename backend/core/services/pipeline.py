@@ -1025,7 +1025,7 @@ def _drop_noop_edits(conversation: Conversation, edits: dict) -> dict | None:
     def same(obj, item: dict) -> bool:
         e = library.entry_dict(obj)
         note = str(item.get("note") or "").strip()
-        return ((not note or note == e["note"].strip())
+        return ((not note or library.same_words(note, e["note"]))
                 and library.split_tags(item.get("positive")) == e["positive"]
                 and library.split_tags(item.get("negative")) == e["negative"]
                 and str(item.get("prose") or "").strip() == e["prose"])

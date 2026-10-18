@@ -21,6 +21,7 @@ collide and the lead always knows which it is naming. A variant's key is
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -93,6 +94,13 @@ def set_text(obj, text: str, *, now=None) -> bool:
         now = obj.lines_ai_at + timedelta(microseconds=1)
     obj.text_edited_at = now
     return True
+
+
+def same_words(a: str, b: str) -> bool:
+    """Whether two notes differ in spacing and line breaks only. A model
+    writing an entry back sends its note again; a copy that lost the breaks
+    a person put in is the same note, and the person's layout is kept."""
+    return "".join(str(a or "").split()) == "".join(str(b or "").split())
 
 
 def lines_by_model(obj, *, now=None) -> None:
@@ -224,9 +232,15 @@ def rehome(conversation: Conversation) -> None:
 
 
 # --------------------------------------------------------------- the lead's listing
-def _field_lines(e: dict, indent: str) -> list[str]:
+def _field_lines(e: dict, indent: str, *, writer: bool = False) -> list[str]:
     out = []
-    if e.get("note"):
+    if e.get("note") and writer:
+        # For the lead, which writes entries back whole: the note as the
+        # person wrote it, line breaks and all, in the form it is written back
+        # in. A note shown on one line came back on one; one shown as indented
+        # lines came back with the indent in it.
+        out.append(f"{indent}{wording.ENTRY_NOTE_LABEL}：{json.dumps(e['note'].strip(), ensure_ascii=False)}")
+    elif e.get("note"):
         out.append(f"{indent}{wording.ENTRY_NOTE_LABEL}：{' '.join(e['note'].split())}")
     if e.get("positive"):
         out.append(f"{indent}{wording.ENTRY_POSITIVE_LABEL}：{', '.join(e['positive'])}")
@@ -267,15 +281,15 @@ def as_prompt_text(selection: Selection) -> str:
         e = entry_dict(s)
         kind = wording.ENTRY_KIND_SETTING + (f"·{e['category']}" if e.get("category") else "")
         blocks.append("\n".join([f"◆ {e['shown_key']}（{kind}，{_origin_mark(e, selection.draw_ids)}）",
-                                  *_field_lines(e, "  ")]))
+                                  *_field_lines(e, "  ", writer=True)]))
     for character, variants in selection.by_character.items():
         e = entry_dict(character)
         lines = [f"◆ {e['shown_key']}（{wording.ENTRY_KIND_CHARACTER}，{_origin_mark(e, selection.draw_ids)}）",
-                 *_field_lines(e, "  ")]
+                 *_field_lines(e, "  ", writer=True)]
         for v in variants:
             ve = entry_dict(v, character=character)
             lines.append(f"  ◇ {ve['shown_key']}（{wording.ENTRY_KIND_VARIANT}）")
-            lines += _field_lines(ve, "    ")
+            lines += _field_lines(ve, "    ", writer=True)
         blocks.append("\n".join(lines))
     return "\n".join(blocks)
 
@@ -387,9 +401,10 @@ def _bare(key: str) -> str:
 
 # --------------------------------------------------------------- the lead's writes
 def _write_fields(obj, item: dict, *, now) -> None:
-    """The lead wrote the whole entry: note, tags and prose, as given."""
+    """The lead wrote the whole entry: note, tags and prose, as given (a
+    note differing only in spacing is the one stored, and stays as it is)."""
     note = str(item.get("note") or "")
-    if note:
+    if note and not same_words(note, obj.lines_text):
         set_text(obj, note, now=now)
     obj.positive = split_tags(item.get("positive"))
     obj.negative = split_tags(item.get("negative"))

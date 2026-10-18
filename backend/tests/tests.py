@@ -4833,7 +4833,7 @@ class EntriesAreWrittenByKeyTests(TestCase):
         # written at a turn that drew nothing: no drawing id to name, and never a message number
         self.assertIn("◆ 黄昏（" + wording.ENTRY_KIND_SETTING + "·光，" + wording.ENTRY_FROM_LEAD_NO_DRAW + "）", text)
         self.assertNotIn("4", text.split("◆ 黄昏")[1].split("\n")[0])
-        self.assertIn(wording.ENTRY_NOTE_LABEL + "：傍晚", text)
+        self.assertIn(wording.ENTRY_NOTE_LABEL + '："傍晚"', text)  # as it is written back
         self.assertIn(wording.ENTRY_POSITIVE_LABEL + "：sunset, warm lighting", text)
         self.assertIn(wording.ENTRY_PROSE_LABEL + "：Dusk.", text)
         self.assertIn("◆ " + library.PROJECT_PREFIX + "画风（" + wording.ENTRY_KIND_SETTING + "·画风，"
