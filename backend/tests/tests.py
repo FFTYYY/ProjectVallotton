@@ -1968,6 +1968,26 @@ class TwoModelWorkflowTests(TestCase):
             Conversation.objects.get(id=branch["id"]).selected_settings.count(), 1
         )
 
+    def test_a_branch_at_an_earlier_drawn_turn_keeps_the_project_selection(self):
+        """A drawn turn's selection_snapshot is the receipt of what its picture
+        used, not the selection: a branch there once read it as one and
+        switched off every project entry the picture had not exposed."""
+        s = self.c.post(f"/api/folders/{self.folder['id']}/settings",
+                        json.dumps({"title": "画风", "content": "水彩"}), content_type="application/json").json()
+        ch = self.c.post(f"/api/folders/{self.folder['id']}/characters",
+                         json.dumps({"name": "林"}), content_type="application/json").json()
+        self.c.post(f"/api/conversations/{self.conv['id']}/selection",
+                    json.dumps({"setting_ids": [s["id"]], "variant_ids": [ch["variants"][0]["id"]]}),
+                    content_type="application/json")
+        self._send(FAKE_TEXT_RESULT, text="你好")
+        self._send(FAKE_TEXT_RESULT, text="再来")
+        first = Message.objects.filter(conversation_id=self.conv["id"], role="assistant").order_by("seq").first()
+        assert first is not None
+        Message.objects.filter(id=first.id).update(selection_snapshot={"entries": [], "keys": []})
+        branch = Conversation.objects.get(id=self.c.post(f"/api/messages/{first.id}/branch").json()["id"])
+        self.assertEqual([str(x.id) for x in branch.selected_settings.all()], [s["id"]])
+        self.assertEqual([str(x.id) for x in branch.selected_variants.all()], [ch["variants"][0]["id"]])
+
 
 class ProviderRegistryTests(TestCase):
     """

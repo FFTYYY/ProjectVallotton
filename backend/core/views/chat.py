@@ -786,6 +786,16 @@ def rerun_conversation(request, conv_id: uuid.UUID):
         )
         if not last_user:
             return json_err(ui_text.NO_USER_MESSAGE_YET)
+        # What the turns being replaced wrote into this conversation's own
+        # entries goes with them, latest first; what the user changed by hand
+        # since stays, and the new turn reads the library as it is now.
+        replaced = locked_conv.messages.filter(
+            archived=False, role="assistant", seq__gt=last_user.seq).order_by("-seq")
+        for turn in replaced:
+            if isinstance(turn.library_before, dict) and isinstance(turn.library_snapshot, dict):
+                taken = library.take_back(locked_conv, turn.library_before, turn.library_snapshot)
+                if taken:
+                    log.info("rerun took back turn %s's entries: %s", turn.id, "、".join(taken))
         # Archive the assistant turn AND any app notes that followed it, so a
         # rerun starts from a clean tail — except the notes that open and close
         # a continuous run. Those record what the app did, not the answer being
@@ -921,17 +931,12 @@ def branch_conversation(request, msg_id: uuid.UUID):
         else:
             own = library.own_layer(src_conv)
         own_settings, own_variants = library.rebuild_own_layer(own, new_conv)
+        # Of the project's entries, the ones the source has switched on now.
+        # A message's selection_snapshot is no record of that: it is the
+        # receipt of what its picture was drawn from, and reading it as the
+        # selection switched off every project entry the picture did not use.
         project_settings = list(src_conv.selected_settings.filter(conversation__isnull=True))
         project_variants = list(src_conv.selected_variants.filter(character__conversation__isnull=True))
-        receipt: dict | None = None
-        if not from_end and anchor is not None and isinstance(anchor.selection_snapshot, dict):
-            receipt = anchor.selection_snapshot
-        if receipt:
-            on_ids = {str(x.get("id")) for x in (receipt.get("settings") or []) if x.get("layer") == "project"}
-            project_settings = [x for x in project_settings if str(x.id) in on_ids]
-            on_variants = {str(v.get("id")) for c in (receipt.get("characters") or []) if c.get("layer") == "project"
-                           for v in (c.get("variants") or [])}
-            project_variants = [x for x in project_variants if str(x.id) in on_variants]
         new_conv.selected_settings.set([*project_settings, *own_settings])
         new_conv.selected_variants.set([*project_variants, *own_variants])
         new_seq = 0

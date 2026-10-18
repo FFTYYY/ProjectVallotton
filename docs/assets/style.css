@@ -137,9 +137,42 @@ nav.menu a {
 }
 nav.menu a:hover { background: var(--tint-soft); text-decoration: none; }
 nav.menu a.active { color: var(--accent-deep); background: var(--tint-soft); font-weight: 500; }
-/* the other language: a switch rather than a page, so it stands a little apart */
-nav.menu a.lang { margin-left: 10px; padding: 5px 11px; border: 1px solid var(--rule); color: var(--ink-3); font-size: 13px; }
-nav.menu a.lang:hover { color: var(--accent-deep); border-color: var(--rule-strong); }
+/* the other language: a switch rather than a page, so it stands a little
+   apart from the menu, and stays in the header when the menu folds -- there
+   as an icon (Lucide's `languages`, the app's own; the name is its label) */
+a.lang {
+  display: inline-flex; align-items: center; flex: none; margin-left: 10px; padding: 5px 11px;
+  border: 1px solid var(--rule); border-radius: 4px; color: var(--ink-3); font-size: 13px;
+}
+a.lang:hover { color: var(--accent-deep); border-color: var(--rule-strong); text-decoration: none; }
+a.lang svg { display: none; width: 20px; height: 20px; }
+/* On a narrow screen the menu would wrap onto two or three lines and take
+   the top of every page; it folds behind one button instead (assets/menu.js)
+   and opens as a list under the header. 760px: the English header needs
+   about 715 to stay on one line, and a desktop scrollbar takes 10 of the
+   width the media query counts. */
+.menu-toggle { display: none; }
+@media (max-width: 760px) {
+  .top-inner { position: relative; padding: 10px 16px; }
+  a.lang { margin-left: auto; width: 38px; height: 38px; padding: 0; justify-content: center; border-radius: 6px; }
+  a.lang:hover { background: var(--tint-soft); }
+  a.lang span { display: none; }
+  a.lang svg { display: block; }
+  .menu-toggle {
+    display: inline-flex; align-items: center; justify-content: center; margin-left: -6px;
+    width: 38px; height: 38px; padding: 0; border: 1px solid var(--rule); border-radius: 6px;
+    background: transparent; color: var(--ink-2); cursor: pointer;
+  }
+  .menu-toggle:hover, .top.open .menu-toggle { color: var(--accent-deep); background: var(--tint-soft); }
+  .menu-toggle svg { width: 20px; height: 20px; display: block; }
+  nav.menu {
+    display: none; position: absolute; top: 100%; left: 0; right: 0; margin: 0;
+    flex-direction: column; gap: 2px; padding: 8px 12px 12px;
+    background: var(--paper); border-bottom: 1px solid var(--rule); box-shadow: var(--shadow);
+  }
+  .top.open nav.menu { display: flex; }
+  nav.menu a { padding: 10px 12px; font-size: 15px; }
+}
 
 /* ---------------------------------------------------------------- page grid */
 .page {
@@ -290,6 +323,12 @@ ol.steps > li > b:first-child { display: block; font-size: 16px; margin-bottom: 
 .hero-logo { width: 112px; height: 112px; border-radius: 50%; display: block; flex: none; }
 .hero-words { display: flex; flex-direction: column; }
 .hero h1 { font-size: 84px; margin: 0; color: var(--ink); line-height: 1.05; }
+/* Just above the one-column layout the picture keeps its width and the title
+   column is at its narrowest: at 84px the last letter ran under the picture
+   (by 55px at 965px wide). The title shrinks with the width there, keeping
+   about 30px clear of the picture: ~58px at 961px, ~70px at 1000px, back to
+   84px from about 1060px. */
+@media (min-width: 961px) and (max-width: 1099px) { .hero h1 { font-size: clamp(56px, calc((100vw - 750px) / 3.8), 84px); } }
 .hero .tag { color: var(--ink-3); letter-spacing: .2em; font-size: 14px; text-transform: uppercase; margin: 6px 0 0 4px; }
 .hero p { font-size: 18px; color: var(--ink-2); max-width: 54ch; margin: 0; line-height: 1.85; }
 .hero-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 36px; }
@@ -365,10 +404,15 @@ figcaption { color: var(--ink-3); font-size: 13.5px; margin-top: 8px; line-heigh
 
 footer.foot {
   color: var(--ink-3); font-size: 13px;
-  max-width: 1200px; margin: 0 auto; padding: 8px 24px 40px; display: flex; gap: 18px; flex-wrap: wrap;
+  max-width: 1200px; margin: 0 auto; padding: 8px 24px 40px;
+  display: flex; gap: 6px 18px; flex-wrap: wrap; justify-content: center;
 }
-@media (min-width: 961px) { footer.foot { padding-left: 288px; } }
+/* centred under the article: beside the contents column, that is the
+   column right of it; the front page has none and centres on the page */
+@media (min-width: 961px) { footer.foot { padding-left: 288px; } main.page.single ~ footer.foot { padding-left: 24px; } }
 footer.foot a { color: var(--ink-2); }
+footer.foot a.gh { display: inline-flex; align-items: center; gap: 6px; }
+footer.foot a.gh svg { width: 14px; height: 14px; display: block; }
 .pager { display: flex; justify-content: space-between; gap: 12px; margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--rule); font-size: 14px; }
 .pager a { color: var(--accent-deep); font-weight: 500; }
 

@@ -10,18 +10,20 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@500;600&family=JetBrains+Mono:wght@400&display=swap">
 <link rel="stylesheet" href="assets/style.css">
+<script src="assets/menu.js" defer></script>
 <script src="assets/toc.js" defer></script>
 </head>
 <body>
 <header class="top"><div class="top-inner">
   <a class="brand" href="index.html"><img src="assets/logo.png" alt=""><span class="word">Vallotton</span><span class="sub">文档</span></a>
-  <nav class="menu">
+  <nav class="menu" id="menu">
     <a href="index.html">前言</a>
     <a href="quickstart.html">快速上手</a>
     <a class="active" href="guide.html">进阶指南</a>
     <a href="deploy.html">部署教程</a>
-    <a class="lang" href="en/guide.html" lang="en">English</a>
   </nav>
+  <a class="lang" href="en/guide.html" lang="en" hreflang="en" title="English" aria-label="English"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg><span>English</span></a>
+  <button class="menu-toggle" type="button" aria-label="菜单" aria-expanded="false" aria-controls="menu"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5.5h14M3 10h14M3 14.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
 </div></header>
 
 <main class="page">
@@ -120,7 +122,7 @@
 <h3 id="entries">条目</h3>
 <p>资料库里的每一项叫一个条目。条目分三种：</p>
 <dl class="terms">
-  <dt>设定</dt><dd>画风、人物比例、反复出现的场景、故事里一直成立的规矩（比如「一直在下雨」）等。每条设定有一个类别。</dd>
+  <dt>设定</dt><dd>画风、人物比例、反复出现的场景、背景设定（比如「一直在下雨」）等。</dd>
   <dt>角色</dt><dd>一个人物不随衣服改变的部分：性别、头发、眼睛、肤色、有没有痣或者疤等。</dd>
   <dt>变体</dt><dd>角色的一套衣服、配饰、姿势、表情等。一个角色可以有好几个变体，换一套衣服不会影响长相。</dd>
 </dl>
@@ -229,6 +231,7 @@
   <a href="quickstart.html">快速上手</a>
   <a href="guide.html">进阶指南</a>
   <a href="deploy.html">部署教程</a>
+  <a class="gh" href="https://github.com/FFTYYY/ProjectVallotton"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
 </footer>
 </body>
 </html>

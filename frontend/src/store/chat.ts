@@ -665,6 +665,8 @@ export const useChat = create<ChatState>((set, get) => {
         await api.post(`/api/conversations/${convId}/rerun`, {});
         // archived messages disappear — take the server's word wholesale
         await get().openConversation(convId);
+        // and the entries the replaced turn wrote went with it
+        await useProjects.getState().loadSelection(convId);
       } catch (err) {
         if (err instanceof ApiError) toast(err.message);
       }

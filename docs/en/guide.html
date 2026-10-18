@@ -10,18 +10,20 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@500;600&family=JetBrains+Mono:wght@400&display=swap">
 <link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/menu.js" defer></script>
 <script src="../assets/toc.js" defer></script>
 </head>
 <body>
 <header class="top"><div class="top-inner">
   <a class="brand" href="index.html"><img src="../assets/logo.png" alt=""><span class="word">Vallotton</span><span class="sub">Docs</span></a>
-  <nav class="menu">
+  <nav class="menu" id="menu">
     <a href="index.html">Overview</a>
     <a href="quickstart.html">Quick start</a>
     <a class="active" href="guide.html">User guide</a>
     <a href="deploy.html">Deployment</a>
-    <a class="lang" href="../guide.html" lang="zh-CN">中文</a>
   </nav>
+  <a class="lang" href="../guide.html" lang="zh-CN" hreflang="zh-CN" title="中文" aria-label="中文"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg><span>中文</span></a>
+  <button class="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="menu"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5.5h14M3 10h14M3 14.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
 </div></header>
 
 <main class="page">
@@ -120,7 +122,7 @@
 <h3 id="entries">Entries</h3>
 <p>Each item in the library is an entry. There are three kinds:</p>
 <dl class="terms">
-  <dt>Lore entry</dt><dd>A style, the characters' proportions, a scene that recurs, a rule that holds throughout the story (“it is always raining”), and so on. Every lore entry has a category.</dd>
+  <dt>Lore entry</dt><dd>A style, the characters' proportions, a scene that recurs, a piece of the story's background (“it is always raining”), and so on.</dd>
   <dt>Character</dt><dd>The parts of a character that do not change with her clothes: sex, hair, eyes, skin, whether she has a mole or a scar.</dd>
   <dt>Variant</dt><dd>One of a character's outfits, with its accessories, pose, expression and so on. A character can have several variants, and changing clothes does not change her face.</dd>
 </dl>
@@ -229,6 +231,7 @@ Variant “School uniform”
   <a href="quickstart.html">Quick start</a>
   <a href="guide.html">User guide</a>
   <a href="deploy.html">Deployment</a>
+  <a class="gh" href="https://github.com/FFTYYY/ProjectVallotton"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
 </footer>
 </body>
 </html>

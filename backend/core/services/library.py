@@ -969,6 +969,135 @@ def rebuild_own_layer(own: dict, into: Conversation) -> tuple[list, list]:
     return on_settings, on_variants
 
 
+#: what an entry says, for telling whether anyone changed it since a record
+_SAID = ("key", "note", "positive", "negative", "prose", "category")
+
+
+def _says(rec: dict) -> list:
+    return [split_tags(rec.get(k)) if k in ("positive", "negative") else str(rec.get(k) or "").strip()
+            for k in _SAID]
+
+
+def _put_back(obj, rec: dict) -> None:
+    """An entry made to say again what an own_layer record says, its dates
+    included, so the patrol sees it as it was then."""
+    note = str(rec.get("note") or "")
+    if isinstance(obj, Character):
+        obj.name, obj.description = str(rec.get("key") or obj.name), note
+    elif isinstance(obj, CharacterVariant):
+        _, _, title = parse_key(str(rec.get("key") or ""))
+        obj.title, obj.content = title or obj.title, note
+    else:
+        obj.title, obj.content = str(rec.get("key") or obj.title), note
+        obj.category = str(rec.get("category") or "")[:40]
+    obj.positive = split_tags(rec.get("positive"))
+    obj.negative = split_tags(rec.get("negative"))
+    obj.prose = str(rec.get("prose") or "")
+    obj.origin_seq = rec.get("origin_seq")
+    for k in ("text_edited_at", "lines_ai_at", "lines_tried_at"):
+        setattr(obj, k, parse_datetime(str(rec[k])) if rec.get(k) else None)
+    obj.save()
+
+
+def take_back(conversation: Conversation, before: dict, after: dict) -> list[str]:
+    """
+    Take back what one turn wrote into this conversation's own layer, for a
+    重跑. `before` is the layer as the turn found it (its library_before),
+    `after` as the turn left it (its library_snapshot); both are own_layer
+    records, matched to the entries by id.
+
+    An entry the turn made goes, one it rewrote says again what it said
+    before, an outfit it removed comes back, and an entry it switched on is
+    switched off again -- each only while it still reads as the turn left it.
+    What a person changed since, the text or the switch, is theirs and stays:
+    the turn asked again starts from the library as it is now. The project's
+    entries are not touched (an edit to them went through a proposal).
+    Returns what was done, one line each, for the log.
+    """
+    def by_id(records) -> dict[str, dict]:
+        return {str(r["id"]): r for r in records or [] if isinstance(r, dict) and r.get("id")}
+
+    def variants_of(layer: dict) -> dict[str, dict]:
+        return {k: v for c in layer.get("characters") or [] for k, v in by_id(c.get("variants")).items()}
+
+    def switch(selected, obj, now_on: bool, was: dict | None, left: dict) -> None:
+        if was is not None and bool(was.get("selected")) != bool(left.get("selected")) \
+                and now_on == bool(left.get("selected")):
+            (selected.add if was.get("selected") else selected.remove)(obj)
+
+    def untouched(obj, left: dict) -> bool:
+        return _says(entry_dict(obj)) == _says(left)
+
+    done: list[str] = []
+    on_settings = {str(i) for i in conversation.selected_settings.values_list("id", flat=True)}
+    on_variants = {str(i) for i in conversation.selected_variants.values_list("id", flat=True)}
+
+    found = by_id(before.get("settings"))
+    for sid, left in by_id(after.get("settings")).items():
+        s = conversation.own_settings.filter(id=sid).first()
+        if s is None:
+            continue
+        was = found.get(sid)
+        if untouched(s, left):
+            if was is None:
+                done.append(f"- {s.title}")
+                s.delete()
+                continue
+            if _says(was) != _says(left):
+                _put_back(s, was)
+                done.append(f"~ {s.title}")
+        switch(conversation.selected_settings, s, sid in on_settings, was, left)
+
+    found_chars = by_id(before.get("characters"))
+    found_variants = variants_of(before)
+    left_variants = variants_of(after)
+    for cid, left in by_id(after.get("characters")).items():
+        c = conversation.own_characters.filter(id=cid).first()
+        if c is None:
+            continue
+        for v in list(c.variants.all()):
+            vid = str(v.id)
+            v_left = left_variants.get(vid)
+            if v_left is None:
+                continue  # made since, by hand
+            v_was = found_variants.get(vid)
+            if untouched(v, v_left):
+                if v_was is None:
+                    done.append("- " + ui_text.ENTRY_VARIANT.format(name=c.name, title=v.title))
+                    v.delete()
+                    continue
+                if _says(v_was) != _says(v_left):
+                    _put_back(v, v_was)
+                    done.append("~ " + ui_text.ENTRY_VARIANT.format(name=c.name, title=v.title))
+            switch(conversation.selected_variants, v, vid in on_variants, v_was, v_left)
+        was = found_chars.get(cid)
+        if was is not None:
+            # an outfit the turn removed (the empty stand-in, once a real one
+            # was written) comes back, switched on as it was
+            for vid, v_was in by_id(was.get("variants")).items():
+                if vid in left_variants or c.variants.filter(id=vid).exists():
+                    continue
+                _, _, title = parse_key(str(v_was.get("key") or ""))
+                if not title or c.variants.filter(title=title).exists():
+                    continue
+                back = CharacterVariant(character=c, title=title,
+                                        position=(c.variants.aggregate(m=Max("position"))["m"] or 0) + 1)
+                _put_back(back, v_was)
+                if v_was.get("selected"):
+                    conversation.selected_variants.add(back)
+        if untouched(c, left):
+            if was is None and not c.variants.exists():
+                done.append(f"- {c.name}")
+                c.delete()
+                continue
+            if was is not None and _says(was) != _says(left):
+                _put_back(c, was)
+                done.append(f"~ {c.name}")
+        if not c.variants.exists():
+            characters_service.repair(c)
+    return done
+
+
 def snapshot(exposure: Exposure | None) -> dict | None:
     """The receipt of what a picture was drawn from: the exposed entries as
     they read at that moment. A copy, so editing an entry next month does
