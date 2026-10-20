@@ -569,13 +569,18 @@ def message_raw(request, msg_id: uuid.UUID):
 
     references_sent = None
     if isinstance(raw.get("references_sent"), list):
+        # the same shape as the guess below: the dialog reads a number and a
+        # size off each, and an item without them took the whole page down
         references_sent = [
             {
+                "index": i,
+                "size": [att.width, att.height],
                 "url": f"/api/media/{att.id}/{os.path.basename(att.file.name or '')}",
                 "thumb_url": f"/api/media/{att.id}/thumb",
                 "description": att.description or None,
             }
-            for att in Attachment.objects.filter(id__in=raw["references_sent"]).order_by("position")
+            for i, att in enumerate(
+                Attachment.objects.filter(id__in=raw["references_sent"]).order_by("position"), start=1)
         ]
     return json_ok(
         {
@@ -939,13 +944,17 @@ def branch_conversation(request, msg_id: uuid.UUID):
         project_variants = list(src_conv.selected_variants.filter(character__conversation__isnull=True))
         new_conv.selected_settings.set([*project_settings, *own_settings])
         new_conv.selected_variants.set([*project_variants, *own_variants])
-        new_seq = 0
         copied: dict = {}
         for m in src_messages:
-            new_seq += 1
             copy = Message.objects.create(
                 conversation=new_conv,
-                seq=new_seq,
+                # The source's numbering, gaps and all. An entry names the turn
+                # that wrote it by seq (origin_seq, in the rebuilt layer and in
+                # every library record copied below), and the lead is told
+                # which drawing that turn made; numbered afresh from 1, a
+                # history with a rerun in it pointed every such entry at the
+                # wrong turn or at none.
+                seq=m.seq,
                 role=m.role,
                 # a failed turn that kept its pictures, a stopped one: the
                 # branch shows them as the original does

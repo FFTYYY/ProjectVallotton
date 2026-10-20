@@ -548,8 +548,9 @@ def draw(
     and what it adds; the app assembles the prompt.
 
     Returns {nai_prompts, assembly, answer, asked, reasoning, lookups, usage}.
-    An answer that assembles to nothing, or to prose NovelAI cannot read as
-    tags, is a ModelError: the turn's retry policy decides what to do.
+    An answer that assembles to nothing is a ModelError: the turn's retry
+    policy decides what to do. The script is not checked: NovelAI V5 reads
+    natural language, Chinese included.
     """
     asked = format_draw(description, exposed, text=text, size=size)
     parsed, usage = _ask(
@@ -574,9 +575,6 @@ def draw(
         r["used"] and (r["positive"] or r["prose"]) for r in made["assembly"]))
     if not said or not can_paint(nai_prompts):
         raise ModelError("drawing model returned an empty prompt")
-    where = assemble.foreign(nai_prompts)
-    if where:
-        raise ModelError("drawing model wrote prose NovelAI cannot read as tags: " + ", ".join(where))
     return {
         "nai_prompts": nai_prompts,
         "assembly": made["assembly"],

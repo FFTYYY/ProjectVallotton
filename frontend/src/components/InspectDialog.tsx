@@ -89,8 +89,10 @@ interface RawTurn {
   tag_index_missing?: boolean;
   drawing: NaiPrompts | null;
   references: {
-    index: number;
-    size: [number | null, number | null];
+    /** optional: the uploads a turn recorded as sent came back without these
+        until 2026-10-20, and reading one took the whole page down */
+    index?: number;
+    size?: [number | null, number | null];
     url: string;
     thumb_url: string;
     /** only on turns from when a separate vision model stood in front of it */
@@ -110,7 +112,7 @@ interface RawTurn {
   } | null;
   /** rows from before entries were kept carry an older shape; shown verbatim then */
   picture: Picture | Record<string, unknown> | null;
-  /** what the lint had to say: foreign words, separators, the limit */
+  /** what the lint had to say: separators, emptiness, the limit */
   notes: string[];
   /** tags in the prompts that the Danbooru index does not have */
   unknown_tags: string[];
@@ -363,23 +365,23 @@ export function InspectDialog({ messageId, onClose }: { messageId: string; onClo
                     {t.leadReferences(data.references.length)}
                   </div>
                   <div className="inspect-refs">
-                    {data.references.map((r) => (
-                      <figure key={r.index}>
-                        <img src={r.thumb_url} alt={t.referenceAlt(r.index)} loading="lazy" />
+                    {data.references.map((r, i) => (
+                      <figure key={r.index ?? i + 1}>
+                        <img src={r.thumb_url} alt={t.referenceAlt(r.index ?? i + 1)} loading="lazy" />
                         <figcaption>
-                          {r.index}
-                          {r.size[0] ? ` · ${r.size[0]}×${r.size[1]}` : ""}
+                          {r.index ?? i + 1}
+                          {r.size?.[0] ? ` · ${r.size[0]}×${r.size[1]}` : ""}
                         </figcaption>
                       </figure>
                     ))}
                   </div>
                   {/* only older turns have one: a separate vision model used to
                       describe the picture and the text went in its place */}
-                  {data.references.map((r) =>
+                  {data.references.map((r, i) =>
                     r.description ? (
                       <Block
-                        key={`d-${r.index}`}
-                        title={t.oldVisionDescription(r.index)}
+                        key={`d-${r.index ?? i + 1}`}
+                        title={t.oldVisionDescription(r.index ?? i + 1)}
                         value={r.description}
                         foldable
                       />

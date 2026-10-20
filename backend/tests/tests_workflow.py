@@ -536,6 +536,28 @@ class WorkflowTests(TestCase):
         # the source conversation itself is untouched by either branch
         self.assertEqual(set(conv.own_settings.values_list("title", flat=True)), {"夜景"})
 
+    def test_a_branch_keeps_the_turn_numbers_its_entries_name(self):
+        """An entry says which turn wrote it by seq, and the lead is told the
+        drawing that turn made. A rerun leaves a gap in the seqs; a branch that
+        numbered its copy afresh pointed the entry at the wrong turn, or at
+        none, and the lead lost where its own entry came from."""
+        conv = Conversation.objects.create(title="c")
+        def row(**kw):
+            return Message.objects.create(conversation=conv, status="done", **kw)
+        row(seq=1, role="user", content="画一张")
+        row(seq=2, role="assistant", content="旧的", archived=True, nai_prompts={"draw_id": "aaaaaa", "base_prompt": "x"})
+        row(seq=3, role="assistant", content="好", nai_prompts={"draw_id": "bbbbbb", "base_prompt": "x"})
+        row(seq=4, role="user", content="记下天台")
+        last = row(seq=5, role="assistant", content="好", nai_prompts={"draw_id": "cccccc", "base_prompt": "x"})
+        library.write_conversation_entries(conv, 5, [{"key": "天台", "note": "天台", "positive": "rooftop"}], [])
+        mark = wording.ENTRY_FROM_LEAD.format(id="cccccc")
+        self.assertIn(mark, library.as_prompt_text(library.selection_for(conv)))
+        r = self.c.post(f"/api/messages/{last.id}/branch")
+        self.assertEqual(r.status_code, 201, r.content[:200])
+        branch = Conversation.objects.get(id=r.json()["id"])
+        self.assertEqual(list(branch.messages.order_by("seq").values_list("seq", flat=True)), [1, 3, 4, 5])
+        self.assertIn(mark, library.as_prompt_text(library.selection_for(branch)))
+
     def test_a_branch_of_a_history_without_snapshots_copies_the_layer_as_it_is_now(self):
         conv = self._conv()
         msg = self._send(conv, "把「黄昏」记下来，不用画")

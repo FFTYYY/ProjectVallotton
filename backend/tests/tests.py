@@ -433,7 +433,7 @@ class ChatTests(TestCase):
         list of columns a copy deliberately does not carry."""
         from django.db.models import ForeignKey
         not_carried = {
-            "id", "seq", "created_at", "updated_at",          # the copy's own
+            "id", "created_at", "updated_at",                 # the copy's own
             "conversation",                                   # the branch
             "client_msg_id", "phase", "cancel_requested", "heartbeat_at",   # in-flight only
             "force_n_images", "force_reflection_rounds", "sticky_refs",     # read while pending only
@@ -546,6 +546,9 @@ class ChatTests(TestCase):
         raw = self.c.get(f"/api/messages/{turn.id}/raw").json()
         self.assertEqual(len(raw["references"]), 1)
         self.assertIn(str(upload.id), raw["references"][0]["url"])
+        # the number and the size the dialog reads off each: without them,
+        # opening 「检查」 on a turn given a reference took the page down
+        self.assertEqual((raw["references"][0]["index"], raw["references"][0]["size"]), (1, [64, 64]))
 
     def test_the_inspector_shows_the_leads_answer_before_the_app_tidied_it(self):
         answer = {
@@ -2189,9 +2192,8 @@ class AssembledWordingTests(TestCase):
     UI_COPY = {
         # a docstring names the control
         "core/services/pipeline.py": ["出图数量"],
-        # the category word that puts a setting's tags first, and the script
-        # range the foreign-text check looks for
-        "core/services/assemble.py": ["画风", "一-鿿"],
+        # the category word that puts a setting's tags first
+        "core/services/assemble.py": ["画风"],
     }
 
     def test_no_model_facing_string_is_left_in_the_code(self):
@@ -5127,19 +5129,14 @@ class AssemblyTests(TestCase):
         self.assertEqual([c["char_caption"] for c in negative], ["blue eyes", ""])
         self.assertEqual([c["centers"] for c in negative], [c["centers"] for c in positive])
 
-    def test_the_lint_reports_separators_emptiness_and_foreign_script_only(self):
+    def test_the_lint_reports_separators_and_emptiness_and_not_the_script(self):
+        """NovelAI V5 reads natural language, Chinese included: a prompt in
+        Chinese is not a fault."""
         faults = assemble.lint({"base_prompt": "1girl,, solo",
                                 "character_prompts": [{"key": "林", "prompt": "银发"}, {"key": "陈", "prompt": ""}],
                                 "negative_prompt": ""})
-        self.assertIn("base: an empty item between commas", faults)
-        self.assertIn("character 林: not English", faults)
-        self.assertIn("character 陈: empty", faults)
+        self.assertEqual(faults, ["base: an empty item between commas", "character 陈: empty"])
         self.assertEqual(assemble.lint(FAKE_NAI_PROMPTS), [])
-        # the text to render may be in any script
-        self.assertEqual(assemble.foreign({"base_prompt": "1girl. " + assemble.TEXT_PREFIX + "午夜",
-                                           "character_prompts": [], "negative_prompt": ""}), [])
-        self.assertEqual(assemble.foreign({"base_prompt": "少女", "character_prompts": [], "negative_prompt": ""}),
-                         ["base"])
 
 
 @override_settings(**TEST_CREDS)

@@ -33,10 +33,9 @@ from core.services.library import split_tags
 STYLE_CATEGORIES = {"画风", "style"}
 TEXT_PREFIX = "Text: "
 
-_FOREIGN = re.compile("[぀-ヿ㐀-䶿一-鿿가-힯]")
 _SEPARATOR_FAULTS = (
-    (re.compile(r"[.!?]\s*,"), "a comma after a stop"),
-    (re.compile(r",\s*[.!?]"), "a stop after a comma"),
+    (re.compile(r"[.!?。！？]\s*,"), "a comma after a stop"),
+    (re.compile(r",\s*[.!?。！？]"), "a stop after a comma"),
     (re.compile(r",\s*,"), "an empty item between commas"),
     (re.compile(r"^\s*[,.]|[,]\s*$"), "a separator at an end"),
     (re.compile(r"\s{2,}"), "a doubled space"),
@@ -129,19 +128,26 @@ def _apply(base: list[str], change: dict | None, which: str) -> list[str]:
     return split_tags(kept + list(change.get(f"add_{which}") or []))
 
 
+#: what ends a sentence, in English and in Chinese: NovelAI V5 reads both
+STOPS = ".!?。！？"
+
+
 def _sentence_key(sentence: str) -> str:
-    """A sentence as compared: letters, digits and single spaces."""
-    return " ".join(re.sub(r"[^a-z0-9 ]", " ", sentence.lower()).split())
+    """A sentence as compared: letters (of any script), digits and single
+    spaces. Latin letters only, it was: a Chinese sentence came out as
+    nothing and was dropped from the prompt as if it were empty."""
+    return " ".join(re.sub(r"[^\w ]|_", " ", sentence.lower()).split())
 
 
 def split_sentences(text: str) -> list[str]:
-    """A run of prose as its sentences, each ending with a stop."""
-    text = " ".join((text or "").split()).strip(" ,;")
+    """A run of prose as its sentences, each ending with a stop. A Chinese
+    stop ends a sentence with or without a space after it."""
+    text = " ".join((text or "").split()).strip(" ,;，；")
     if not text:
         return []
-    if text[-1] not in ".!?":
+    if text[-1] not in STOPS:
         text += "."
-    return [s for s in re.split(r"(?<=[.!?])\s+", text) if _sentence_key(s)]
+    return [s.strip() for s in re.split(r"(?<=[.!?])\s+|(?<=[。！？])", text) if _sentence_key(s)]
 
 
 def sentences(pieces) -> str:
@@ -191,7 +197,7 @@ def glue(parts) -> str:
             continue
         if not out:
             out = part
-        elif out[-1] in ".!?":
+        elif out[-1] in STOPS:
             out += " " + part
         else:
             out += ", " + part
@@ -280,25 +286,9 @@ def assemble(exposed: list[dict], answer: dict, *, text: str = "", size_hint: st
 
 
 # --------------------------------------------------------------- checks
-def foreign(nai_prompts: dict) -> list[str]:
-    """Which prompts carry a script NovelAI's tags are not: the drawing
-    model now and then answers a Chinese brief in Chinese. The text after
-    `Text:` is allowed to be anything."""
-    out: list[str] = []
-    base = str(nai_prompts.get("base_prompt") or "")
-    base = base.split(TEXT_PREFIX, 1)[0]
-    if _FOREIGN.search(base):
-        out.append("base")
-    for i, c in enumerate(nai_prompts.get("character_prompts") or [], 1):
-        if _FOREIGN.search(str(c.get("prompt") or "")) or _FOREIGN.search(str(c.get("negative") or "")):
-            out.append(f"character {c.get('key') or i}")
-    if _FOREIGN.search(str(nai_prompts.get("negative_prompt") or "")):
-        out.append("negative")
-    return out
-
-
 def lint(nai_prompts: dict) -> list[str]:
-    """What a prompt breaks mechanically: separators, emptiness, script.
+    """What a prompt breaks mechanically: separators and emptiness. Not the
+    script: NovelAI V5 reads natural language, Chinese included.
     One line per fault; empty when the prompt is as promised."""
     faults: list[str] = []
     pieces = [("base", str(nai_prompts.get("base_prompt") or "").split(TEXT_PREFIX, 1)[0])]
@@ -313,8 +303,6 @@ def lint(nai_prompts: dict) -> list[str]:
         for pattern, what in _SEPARATOR_FAULTS:
             if pattern.search(prompt):
                 faults.append(f"{where}: {what}")
-        if _FOREIGN.search(prompt):
-            faults.append(f"{where}: not English")
     return faults
 
 
